@@ -60,12 +60,14 @@ jobs:
         env:
           NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
         run: |
-          if [ -z "$NETLIFY_BUILD_HOOK_URL" ]; then
-            echo "ERROR: NETLIFY_BUILD_HOOK_URL is empty or unavailable."
+          URL="$(printf '%s' "$NETLIFY_BUILD_HOOK_URL" | tr -d '\r\n ')"
+
+          if [[ ! "$URL" =~ ^https://api\.netlify\.com/build_hooks/[A-Za-z0-9_-]+$ ]]; then
+            echo "ERROR: Invalid Netlify Build Hook URL."
             exit 1
           fi
 
           curl --fail --silent --show-error \
             --request POST \
             --data '{}' \
-            "$NETLIFY_BUILD_HOOK_URL"
+            "$URL"
