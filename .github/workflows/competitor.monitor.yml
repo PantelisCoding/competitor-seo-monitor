@@ -37,12 +37,14 @@ jobs:
       - name: Run competitor scanner
         run: node scripts/monitorCompetitors.js
 
-        - name: Commit updated monitoring data
+      - name: Commit updated monitoring data
         id: commit_data
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add static/data/competitor-monitor.json
+
           if ! git diff --cached --quiet; then
             git commit -m "Update competitor SEO monitoring data"
             git push
