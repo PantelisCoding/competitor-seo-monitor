@@ -56,6 +56,16 @@ jobs:
 
       - name: Trigger Netlify deployment
         if: steps.commit_data.outputs.changed == 'true'
+        shell: bash
         env:
           NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
-        run: curl --fail --silent --show-error -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL"
+        run: |
+          if [ -z "$NETLIFY_BUILD_HOOK_URL" ]; then
+            echo "ERROR: NETLIFY_BUILD_HOOK_URL is empty or unavailable."
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            --request POST \
+            --data '{}' \
+            "$NETLIFY_BUILD_HOOK_URL"
