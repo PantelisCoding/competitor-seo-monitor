@@ -278,6 +278,7 @@
   </div>
 </template>
 
+
 <script>
 export default {
   data() {
@@ -498,8 +499,16 @@ export default {
       return this.getUrls(competitorId).length
     },
 
+    getTotalNewDiscoveries(competitorId) {
+      return (this.data.history || []).filter(item =>
+        item.competitorId === competitorId &&
+        item.category === 'seoPages' &&
+        item.status === 'new'
+      ).length
+    },
+
     getCompetitorNew(competitorId) {
-      return this.data.competitors[competitorId]?.newSeoPages || 0
+      return this.getTotalNewDiscoveries(competitorId)
     },
 
     getSitemapsChecked(competitorId) {
