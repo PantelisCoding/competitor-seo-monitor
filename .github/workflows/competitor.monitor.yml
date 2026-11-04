@@ -37,7 +37,7 @@ jobs:
       - name: Run competitor scanner
         run: node scripts/monitorCompetitors.js
 
-           - name: Commit updated monitoring data
+        - name: Commit updated monitoring data
         id: commit_data
         run: |
           git config user.name "github-actions[bot]"
