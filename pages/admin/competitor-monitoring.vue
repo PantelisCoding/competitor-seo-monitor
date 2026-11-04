@@ -1,5 +1,6 @@
 
 
+
 <template>
   <div class="monitor-page">
     <div class="monitor-container">
@@ -187,7 +188,7 @@
             <div class="url-list">
               <div
                 v-for="item in getVisibleUrls(competitor.id)"
-                :key="item.url"
+                :key="getUrlItemKey(item)"
                 class="url-item"
               >
                 <div class="url-content">
@@ -350,7 +351,13 @@ export default {
           throw new Error('Could not load competitor monitoring data.')
         }
 
-        this.data = await response.json()
+        const result = await response.json()
+
+        this.data = {
+          lastChecked: result.lastChecked || null,
+          competitors: result.competitors || {},
+          history: Array.isArray(result.history) ? result.history : []
+        }
       } catch (error) {
         this.error = error.message
       } finally {
@@ -388,14 +395,10 @@ export default {
       return Object.entries(competitor.urls)
         .filter(([, item]) => item.category === 'seoPages')
         .map(([url, item]) => ({ url, ...item }))
-        .sort((a, b) => new Date(b.firstSeen) - new Date(a.firstSeen))
+        .sort((a, b) => new Date(b.firstSeen || 0) - new Date(a.firstSeen || 0))
     },
 
     getNewUrls(competitorId) {
-      const competitor = this.data.competitors[competitorId]
-
-      if (!competitor || !competitor.urls) return []
-
       return (this.data.history || [])
         .filter(item =>
           item.competitorId === competitorId &&
@@ -403,17 +406,20 @@ export default {
           item.status === 'new'
         )
         .map(historyItem => {
-          const stored = competitor.urls[historyItem.url]
+          const stored = this.data.competitors[competitorId]?.urls?.[historyItem.url] || {}
+          const detectedAt = this.getHistoryDate(historyItem)
 
-          return stored
-            ? { url: historyItem.url, ...stored }
-            : null
+          return {
+            ...stored,
+            ...historyItem,
+            url: historyItem.url,
+            firstSeen: detectedAt || stored.firstSeen || null
+          }
         })
-        .filter(Boolean)
-        .filter((item, index, array) =>
-          array.findIndex(entry => entry.url === item.url) === index
+        .sort((a, b) =>
+          new Date(this.getHistoryDate(b) || 0) -
+          new Date(this.getHistoryDate(a) || 0)
         )
-        .sort((a, b) => new Date(b.firstSeen) - new Date(a.firstSeen))
     },
 
     getRemovedUrls(competitorId) {
@@ -428,17 +434,22 @@ export default {
           new Date(this.getHistoryDate(b) || 0) -
           new Date(this.getHistoryDate(a) || 0)
         )
-        .filter((item, index, array) =>
-          array.findIndex(entry => entry.url === item.url) === index
-        )
     },
 
     getHistoryDate(item) {
-      return item.timestamp ||
+      return item.detectedAt ||
+        item.timestamp ||
         item.date ||
-        item.detectedAt ||
         item.createdAt ||
         null
+    },
+
+    getUrlItemKey(item) {
+      if (item.status === 'new' || item.status === 'removed') {
+        return `${item.url}-${item.status}-${this.getHistoryDate(item) || ''}`
+      }
+
+      return `${item.url}-${item.firstSeen || ''}`
     },
 
     getPreviousUrls(competitorId) {
@@ -473,11 +484,11 @@ export default {
       const tab = this.getTab(competitorId)
 
       if (tab === 'new') {
-        return 'No new SEO pages were discovered in the latest scan.'
+        return 'No new SEO pages have been recorded in the monitoring history.'
       }
 
       if (tab === 'removed') {
-        return 'No SEO pages have been removed from the monitored sitemaps.'
+        return 'No SEO pages have been recorded as removed from the monitored sitemaps.'
       }
 
       return 'There are no URLs available in this view.'
@@ -492,7 +503,9 @@ export default {
     },
 
     getSitemapsChecked(competitorId) {
-      return this.data.competitors[competitorId]?.sitemapsChecked || 0
+      return this.data.competitors[competitorId]?.sitemapCount ||
+        this.data.competitors[competitorId]?.sitemapsChecked ||
+        0
     },
 
     getSitemapErrors(competitorId) {
@@ -515,6 +528,7 @@ export default {
   }
 }
 </script>
+
 
 
 <style scoped>

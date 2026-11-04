@@ -229,7 +229,14 @@ function loadDatabase() {
     }
   }
 
-  return JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'))
+  const database = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'))
+
+  database.competitors = database.competitors || {}
+  database.history = Array.isArray(database.history)
+    ? database.history
+    : []
+
+  return database
 }
 
 function canConfirmDeletions(competitor, errors) {
@@ -350,7 +357,7 @@ async function monitorCompetitor(competitor, database) {
 async function main() {
   const database = loadDatabase()
 
-  database.history = (database.history || []).filter(
+  database.history = database.history.filter(
     item => item.category !== 'jobListings'
   )
 
@@ -363,7 +370,6 @@ async function main() {
   }
 
   database.lastChecked = new Date().toISOString()
-  database.history = database.history.slice(0, 5000)
 
   fs.mkdirSync(path.dirname(DATA_PATH), { recursive: true })
 
