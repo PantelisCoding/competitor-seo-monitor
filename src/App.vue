@@ -3,7 +3,7 @@
 </template>
 
 <script>
-import CompetitorMonitoring from './CompetitorMonitoring.vue'
+import CompetitorMonitoring from '../pages/admin/competitor-monitoring.vue'
 
 export default {
   components: {

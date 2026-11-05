@@ -5,7 +5,11 @@ const { XMLParser } = require('fast-xml-parser')
 const { chromium } = require('playwright')
 
 const DATA_PATH = path.join(__dirname, '../static/data/competitor-monitor.json')
-const CONCURRENCY = 8
+const CONCURRENCY = 5
+const REQUEST_TIMEOUT = 45000
+const MAX_SITEMAPS = 500
+const MAX_DEPTH = 5
+const MONITORING_CONFIG_VERSION = 1
 
 const COMPETITORS = [
   {
@@ -21,6 +25,54 @@ const COMPETITORS = [
     baseUrl: 'https://www.tealhq.com',
     sitemapIndex: 'https://www.tealhq.com/sitemap-index.xml',
     useBrowser: true
+  },
+  {
+    id: 'lazyapply',
+    name: 'LazyApply',
+    domain: 'lazyapply.com',
+    baseUrl: 'https://lazyapply.com',
+    sampleLimits: {
+      'cover-letter-examples': 500,
+      'interview-answer': 500,
+      'resignation-letter': 250
+    }
+  },
+  {
+    id: 'sonara',
+    name: 'Sonara',
+    domain: 'sonara.ai',
+    baseUrl: 'https://www.sonara.ai',
+    scanEnabled: false
+  },
+  {
+    id: 'applyblast',
+    name: 'ApplyBlast',
+    domain: 'applyblast.com',
+    baseUrl: 'https://applyblast.com'
+  },
+  {
+    id: 'applyhero',
+    name: 'ApplyHero',
+    domain: 'applyhero.ai',
+    baseUrl: 'https://www.applyhero.ai'
+  },
+  {
+    id: 'simplify',
+    name: 'Simplify',
+    domain: 'simplify.jobs',
+    baseUrl: 'https://simplify.jobs'
+  },
+  {
+    id: 'jobscan',
+    name: 'Jobscan',
+    domain: 'jobscan.co',
+    baseUrl: 'https://www.jobscan.co'
+  },
+  {
+    id: 'jobcopilot',
+    name: 'JobCopilot',
+    domain: 'jobcopilot.com',
+    baseUrl: 'https://jobcopilot.com'
   }
 ]
 
@@ -48,7 +100,7 @@ async function fetchText(url, browser = null) {
     try {
       const response = await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: 60000
+        timeout: REQUEST_TIMEOUT
       })
 
       if (!response || !response.ok()) {
@@ -66,7 +118,7 @@ async function fetchText(url, browser = null) {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
       Accept: 'application/xml,text/xml,*/*'
     },
-    signal: AbortSignal.timeout(30000)
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT)
   })
 
   if (!response.ok) {
@@ -78,7 +130,12 @@ async function fetchText(url, browser = null) {
 
 async function discoverSitemaps(competitor) {
   if (competitor.sitemapIndex) {
-    return [competitor.sitemapIndex]
+    return [
+      {
+        url: competitor.sitemapIndex,
+        optional: false
+      }
+    ]
   }
 
   const robots = await fetchText(
@@ -90,6 +147,13 @@ async function discoverSitemaps(competitor) {
     .filter(line => /^sitemap:/i.test(line.trim()))
     .map(line => line.trim().replace(/^sitemap:\s*/i, ''))
 
+  if (declared.length) {
+    return [...new Set(declared)].map(url => ({
+      url,
+      optional: false
+    }))
+  }
+
   const fallback = [
     `${competitor.baseUrl}/sitemap.xml`,
     `${competitor.baseUrl}/sitemap-index.xml`,
@@ -97,14 +161,27 @@ async function discoverSitemaps(competitor) {
     `${competitor.baseUrl}/sitemap-tools.xml`
   ]
 
-  return [...new Set([...declared, ...fallback])]
+  return [...new Set(fallback)].map(url => ({
+    url,
+    optional: true
+  }))
 }
 
 function getCategory(url, sitemap) {
-  const pathname = new URL(url).pathname.toLowerCase()
+  let pathname
+
+  try {
+    pathname = new URL(url).pathname.toLowerCase()
+  } catch {
+    return 'jobListings'
+  }
+
   const source = (sitemap || '').toLowerCase()
 
   if (
+    /postings_\d+\.xml/i.test(source) ||
+    /latest-jobs\.xml/i.test(source) ||
+    /job-listings?\.xml/i.test(source) ||
     source.includes('sitemap-teal-jobs-') ||
     /\/jobs?\/[^/?]+/.test(pathname) ||
     /\/job-listings?\/[^/?]+/.test(pathname)
@@ -115,68 +192,208 @@ function getCategory(url, sitemap) {
   return 'seoPages'
 }
 
-async function readSitemap(url, results, visited, errors, browser = null, depth = 0) {
-  if (visited.has(url) || depth > 5 || visited.size >= 500) return
-
-  if (/sitemap-teal-jobs-/i.test(url)) return
-
-  visited.add(url)
-  console.log(`[${visited.size}] Processing: ${url}`)
-
+function getPageGroup(url) {
   try {
-    const xml = await fetchText(url, browser)
-    const data = parser.parse(xml)
+    const parts = new URL(url).pathname
+      .toLowerCase()
+      .split('/')
+      .filter(Boolean)
 
-    if (data.sitemapindex) {
-      const children = normalizeArray(data.sitemapindex.sitemap)
-        .filter(child => child.loc)
-        .filter(child => !/sitemap-teal-jobs-/i.test(child.loc))
-
-      console.log(`Found ${children.length} SEO sitemap files`)
-
-      for (let i = 0; i < children.length; i += CONCURRENCY) {
-        const batch = children.slice(i, i + CONCURRENCY)
-
-        await Promise.all(
-          batch.map(child =>
-            readSitemap(child.loc, results, visited, errors, browser, depth + 1)
-          )
-        )
-      }
-
-      return
-    }
-
-    if (data.urlset) {
-      const urls = normalizeArray(data.urlset.url)
-      let collected = 0
-
-      for (const item of urls) {
-        if (!item.loc) continue
-
-        const category = getCategory(item.loc, url)
-
-        if (category !== 'seoPages') continue
-
-        results.set(item.loc, {
-          lastmod: item.lastmod || null,
-          sitemap: url,
-          category
-        })
-
-        collected++
-      }
-
-      console.log(`Collected ${collected} SEO URLs. Total: ${results.size}`)
-    }
-  } catch (error) {
-    errors.push({
-      sitemap: url,
-      message: error.message
-    })
-
-    console.log(`Failed: ${url} - ${error.message}`)
+    return parts[0] || 'homepage'
+  } catch {
+    return 'unknown'
   }
+}
+
+function getStableHash(value) {
+  let hash = 2166136261
+
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  return hash >>> 0
+}
+
+function selectMonitoredUrls(discoveredUrls, competitor) {
+  if (!competitor.sampleLimits) {
+    return new Map(discoveredUrls)
+  }
+
+  const groups = new Map()
+
+  for (const [url, metadata] of discoveredUrls) {
+    const group = getPageGroup(url)
+
+    if (!groups.has(group)) {
+      groups.set(group, [])
+    }
+
+    groups.get(group).push([url, metadata])
+  }
+
+  const monitoredUrls = new Map()
+  const groupCounts = {}
+
+  for (const [group, entries] of groups) {
+    const limit = competitor.sampleLimits[group]
+
+    if (Number.isFinite(limit) && entries.length > limit) {
+      entries.sort((a, b) => {
+        return getStableHash(a[0]) - getStableHash(b[0])
+      })
+
+      entries.splice(limit)
+    }
+
+    groupCounts[group] = {
+      discovered: groups.get(group).length,
+      monitored: entries.length
+    }
+
+    for (const [url, metadata] of entries) {
+      monitoredUrls.set(url, metadata)
+    }
+  }
+
+  return {
+    urls: monitoredUrls,
+    groupCounts
+  }
+}
+
+async function readSitemaps(initialSitemaps, results, errors, browser = null) {
+  const queue = initialSitemaps.map(item => ({
+    url: item.url,
+    optional: item.optional,
+    depth: 0
+  }))
+
+  const queued = new Set(queue.map(item => item.url))
+  const visited = new Set()
+
+  let successfulSitemaps = 0
+
+  while (queue.length && visited.size < MAX_SITEMAPS) {
+    const batch = []
+
+    while (
+      batch.length < CONCURRENCY &&
+      queue.length &&
+      visited.size + batch.length < MAX_SITEMAPS
+    ) {
+      const item = queue.shift()
+
+      if (visited.has(item.url)) continue
+
+      visited.add(item.url)
+      batch.push(item)
+    }
+
+    const responses = await Promise.all(
+      batch.map(async item => {
+        console.log(`[${visited.size}] Processing: ${item.url}`)
+
+        try {
+          const xml = await fetchText(item.url, browser)
+          const parsed = parser.parse(xml)
+
+          successfulSitemaps++
+
+          return {
+            item,
+            parsed
+          }
+        } catch (error) {
+          const isOptional404 =
+            item.optional &&
+            error.message.startsWith('HTTP 404:')
+
+          if (isOptional404) {
+            console.log(`Optional sitemap not found: ${item.url}`)
+          } else {
+            errors.push({
+              sitemap: item.url,
+              message: error.message
+            })
+
+            console.log(`Failed: ${item.url} - ${error.message}`)
+          }
+
+          return null
+        }
+      })
+    )
+
+    for (const response of responses) {
+      if (!response) continue
+
+      const { item, parsed } = response
+
+      if (parsed.sitemapindex) {
+        const children = normalizeArray(parsed.sitemapindex.sitemap)
+          .filter(child => child.loc)
+          .filter(child => !/sitemap-teal-jobs-/i.test(child.loc))
+
+        console.log(`Found ${children.length} sitemap files`)
+
+        for (const child of children) {
+          const childUrl = child.loc
+
+          if (/\/blog\/sitemap\/(posts|tags|authors)\.xml/i.test(childUrl)) {
+            continue
+          }
+
+          if (
+            !queued.has(childUrl) &&
+            !visited.has(childUrl) &&
+            item.depth < MAX_DEPTH
+          ) {
+            queued.add(childUrl)
+
+            queue.push({
+              url: childUrl,
+              optional: false,
+              depth: item.depth + 1
+            })
+          }
+        }
+      }
+
+      if (parsed.urlset) {
+        const urls = normalizeArray(parsed.urlset.url)
+        let collected = 0
+
+        for (const entry of urls) {
+          if (!entry.loc) continue
+
+          const category = getCategory(entry.loc, item.url)
+
+          if (category !== 'seoPages') continue
+
+          results.set(entry.loc, {
+            lastmod: entry.lastmod || null,
+            sitemap: item.url,
+            category
+          })
+
+          collected++
+        }
+
+        console.log(`Discovered ${collected} SEO URLs. Total: ${results.size}`)
+      }
+    }
+  }
+
+  if (queue.length) {
+    errors.push({
+      sitemap: 'Sitemap processing limit',
+      message: `Maximum sitemap limit of ${MAX_SITEMAPS} reached. ${queue.length} sitemap files remain unprocessed.`
+    })
+  }
+
+  return successfulSitemaps
 }
 
 async function collectUrls(competitor) {
@@ -184,33 +401,40 @@ async function collectUrls(competitor) {
 
   try {
     if (competitor.useBrowser) {
-      browser = await chromium.launch({ headless: true })
+      browser = await chromium.launch({
+        headless: true
+      })
     }
 
     const sitemapUrls = await discoverSitemaps(competitor)
-    const results = new Map()
-    const visited = new Set()
+    const discoveredUrls = new Map()
     const errors = []
 
-    for (let i = 0; i < sitemapUrls.length; i += CONCURRENCY) {
-      const batch = sitemapUrls.slice(i, i + CONCURRENCY)
+    const sitemapCount = await readSitemaps(
+      sitemapUrls,
+      discoveredUrls,
+      errors,
+      browser
+    )
 
-      await Promise.all(
-        batch.map(url =>
-          readSitemap(url, results, visited, errors, browser)
-        )
-      )
-    }
-
-    if (!results.size) {
+    if (!discoveredUrls.size) {
       throw new Error(
         `No SEO URLs collected for ${competitor.name}. ${JSON.stringify(errors)}`
       )
     }
 
+    const selection = selectMonitoredUrls(
+      discoveredUrls,
+      competitor
+    )
+
+    const monitoredUrls = selection.urls || selection
+
     return {
-      urls: results,
-      sitemapCount: visited.size,
+      urls: monitoredUrls,
+      discoveredUrls,
+      groupCounts: selection.groupCounts || {},
+      sitemapCount,
       errors
     }
   } finally {
@@ -229,9 +453,12 @@ function loadDatabase() {
     }
   }
 
-  const database = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'))
+  const database = JSON.parse(
+    fs.readFileSync(DATA_PATH, 'utf8')
+  )
 
   database.competitors = database.competitors || {}
+
   database.history = Array.isArray(database.history)
     ? database.history
     : []
@@ -239,19 +466,8 @@ function loadDatabase() {
   return database
 }
 
-function canConfirmDeletions(competitor, errors) {
-  return errors.every(error => {
-    const expectedAiApply404s = [
-      `${competitor.baseUrl}/sitemap-index.xml`,
-      `${competitor.baseUrl}/sitemap_index.xml`
-    ]
-
-    return (
-      competitor.id === 'aiapply' &&
-      expectedAiApply404s.includes(error.sitemap) &&
-      error.message.startsWith('HTTP 404:')
-    )
-  })
+function canConfirmDeletions(errors) {
+  return errors.length === 0
 }
 
 async function monitorCompetitor(competitor, database) {
@@ -259,20 +475,25 @@ async function monitorCompetitor(competitor, database) {
 
   const result = await collectUrls(competitor)
   const existing = database.competitors[competitor.id]
-
   const now = new Date().toISOString()
 
-  const urls = Object.fromEntries(
-    Object.entries(existing?.urls || {}).filter(
-      ([url, metadata]) => getCategory(url, metadata.sitemap) === 'seoPages'
-    )
-  )
-
+  const previousUrls = existing?.urls || {}
+  const existingUrlSet = new Set(Object.keys(previousUrls))
   const isInitialized = existing?.initialized === true
+
+  const isSamplingMigration =
+    Boolean(competitor.sampleLimits) &&
+    existing?.monitoringConfigVersion !== MONITORING_CONFIG_VERSION
+
+  const urls = {}
+  const monitoredUrlSet = new Set(result.urls.keys())
+
   let newSeoCount = 0
 
   for (const [url, metadata] of result.urls) {
-    if (!urls[url]) {
+    const previous = previousUrls[url]
+
+    if (!previous) {
       urls[url] = {
         firstSeen: now,
         lastSeen: now,
@@ -294,20 +515,28 @@ async function monitorCompetitor(competitor, database) {
         newSeoCount++
       }
     } else {
-      urls[url].lastSeen = now
-      urls[url].lastmod = metadata.lastmod
-      urls[url].sitemap = metadata.sitemap
-      urls[url].category = 'seoPages'
+      urls[url] = {
+        ...previous,
+        lastSeen: now,
+        lastmod: metadata.lastmod,
+        sitemap: metadata.sitemap,
+        category: 'seoPages'
+      }
     }
   }
 
   let removedSeoCount = 0
 
-  if (canConfirmDeletions(competitor, result.errors)) {
-    for (const url of Object.keys(urls)) {
-      if (!result.urls.has(url)) {
-        delete urls[url]
-
+  if (isSamplingMigration) {
+    console.log(
+      `${competitor.name}: sampling configuration applied. Existing URLs outside the sample will not be reported as deleted.`
+    )
+  } else if (canConfirmDeletions(result.errors)) {
+    for (const url of existingUrlSet) {
+      if (
+        !result.discoveredUrls.has(url) &&
+        !isSamplingMigration
+      ) {
         database.history.unshift({
           url,
           competitor: competitor.name,
@@ -320,28 +549,52 @@ async function monitorCompetitor(competitor, database) {
         removedSeoCount++
       }
     }
+  } else {
+    console.log(
+      `Deletion detection skipped for ${competitor.name} because sitemap errors occurred.`
+    )
   }
 
-  database.competitors[competitor.id] = {
+  const competitorData = {
     name: competitor.name,
     domain: competitor.domain,
     lastChecked: now,
-    totalUrls: result.urls.size,
+    totalUrls: result.discoveredUrls.size,
     sitemapCount: result.sitemapCount,
-    seoPages: result.urls.size,
+    seoPages: result.discoveredUrls.size,
+    monitoredUrls: result.urls.size,
     jobListings: 0,
     newSeoPages: newSeoCount,
     newJobListings: 0,
+    sitemapErrors: result.errors,
     initialized: true,
     urls
   }
 
+  if (competitor.sampleLimits) {
+    competitorData.monitoringConfigVersion = MONITORING_CONFIG_VERSION
+    competitorData.samplingLimits = competitor.sampleLimits
+    competitorData.urlCountsByGroup = result.groupCounts
+  }
+
+  database.competitors[competitor.id] = competitorData
+
   console.log(`${competitor.name}:`)
-  console.log(`  SEO pages: ${result.urls.size} (${newSeoCount} new)`)
+  console.log(`  Discovered SEO pages: ${result.discoveredUrls.size}`)
+  console.log(`  Monitored SEO pages: ${result.urls.size} (${newSeoCount} new)`)
   console.log(`  Removed SEO pages: ${removedSeoCount}`)
   console.log(`  Job listings: excluded`)
-  console.log(`  Total SEO URLs: ${result.urls.size}`)
   console.log(`  Sitemaps checked: ${result.sitemapCount}`)
+
+  if (competitor.sampleLimits) {
+    console.log('  Sampling by category:')
+
+    for (const [group, counts] of Object.entries(result.groupCounts)) {
+      console.log(
+        `    ${group}: ${counts.monitored}/${counts.discovered}`
+      )
+    }
+  }
 
   if (result.errors.length) {
     console.log(`  Sitemap errors: ${result.errors.length}`)
@@ -354,6 +607,21 @@ async function monitorCompetitor(competitor, database) {
   return result.errors
 }
 
+function saveDatabase(database) {
+  fs.mkdirSync(path.dirname(DATA_PATH), {
+    recursive: true
+  })
+
+  const temporaryPath = `${DATA_PATH}.tmp`
+
+  fs.writeFileSync(
+    temporaryPath,
+    JSON.stringify(database, null, 2)
+  )
+
+  fs.renameSync(temporaryPath, DATA_PATH)
+}
+
 async function main() {
   const database = loadDatabase()
 
@@ -362,6 +630,13 @@ async function main() {
   )
 
   for (const competitor of COMPETITORS) {
+    if (competitor.scanEnabled === false) {
+      console.log(
+        `${competitor.name}: automated scanning disabled pending permission.`
+      )
+      continue
+    }
+
     try {
       await monitorCompetitor(competitor, database)
     } catch (error) {
@@ -371,12 +646,7 @@ async function main() {
 
   database.lastChecked = new Date().toISOString()
 
-  fs.mkdirSync(path.dirname(DATA_PATH), { recursive: true })
-
-  fs.writeFileSync(
-    DATA_PATH,
-    JSON.stringify(database, null, 2)
-  )
+  saveDatabase(database)
 
   console.log('SEO monitoring completed.')
 }
