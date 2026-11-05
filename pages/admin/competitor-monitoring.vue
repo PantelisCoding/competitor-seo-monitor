@@ -12,7 +12,7 @@
         </div>
 
         <button class="refresh-button" :disabled="loading" @click="loadData">
-          <span :class="{ spinning: loading }">β†»</span>
+          <span :class="{ spinning: loading }">↻</span>
           {{ loading ? 'Refreshing...' : 'Refresh data' }}
         </button>
       </header>
@@ -45,7 +45,7 @@
             <div class="stat-card primary-stat">
               <div class="stat-top">
                 <span>Total SEO pages</span>
-                <span class="stat-icon blue-icon">β†—</span>
+                <span class="stat-icon blue-icon">▤</span>
               </div>
               <strong>{{ formatNumber(totalUrls) }}</strong>
               <span class="stat-description">Pages currently monitored</span>
@@ -63,7 +63,7 @@
             <div class="stat-card">
               <div class="stat-top">
                 <span>Competitors</span>
-                <span class="stat-icon purple-icon">β—</span>
+                <span class="stat-icon purple-icon">#</span>
               </div>
               <strong>{{ competitors.length }}</strong>
               <span class="stat-description">Active monitoring sources</span>
@@ -73,583 +73,8 @@
               <div class="stat-top">
                 <span>Sitemap errors</span>
                 <span class="stat-icon" :class="totalErrors ? 'red-icon' : 'green-icon'">
-                  {{ totalErrors ? '!' : 'β“' }}
-                </span>
-              </div>
-              <strong>{{ totalErrors }}</strong>
-              <span class="stat-description">
-                {{ totalErrors ? 'Issues reported during scanning' : 'No reported sitemap errors' }}
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section class="competitors-section">
-          <div class="section-heading">
-            <div>
-              <span class="section-label">COMPETITOR SOURCES</span>
-              <h2>Tracked competitors</h2>
-            </div>
-            <span class="source-count">{{ competitors.length }} sources</span>
-          </div>
-
-          <div
-            v-for="competitor in competitors"
-            :key="competitor.id"
-            class="competitor-card"
-          >
-            <div class="competitor-overview">
-              <div class="competitor-top">
-                <div class="competitor-identity">
-                  <div class="competitor-logo" :class="'logo-' + competitor.id">
-                    {{ competitor.initial }}
-                  </div>
-                  <div>
-                    <h3>{{ competitor.name }}</h3>
-                    <a
-                      :href="'https://' + competitor.domain"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {{ competitor.domain }} β†—
-                    </a>
-                  </div>
-                </div>
-
-                <div class="competitor-status">
-                  <span
-                    class="status-indicator"
-                    :class="{ 'status-pending': !data.competitors[competitor.id] }"
-                  ></span>
-                  {{ data.competitors[competitor.id] ? 'Monitoring' : 'Not yet scanned' }}
-                </div>
-              </div>
-
-              <div class="competitor-stats">
-                <div class="competitor-stat">
-                  <span>Total SEO pages</span>
-                  <strong>{{ formatNumber(getCompetitorTotal(competitor.id)) }}</strong>
-                </div>
-                <div class="competitor-stat">
-                  <span>New pages</span>
-                  <strong class="new-count">
-                    {{ formatNumber(getCompetitorNew(competitor.id)) }}
-                  </strong>
-                </div>
-                <div class="competitor-stat">
-                  <span>Sitemaps checked</span>
-                  <strong>{{ getSitemapsChecked(competitor.id) }}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div class="competitor-pages">
-              <div class="category-header">
-                <div>
-                  <h4>SEO pages</h4>
-                  <p>Explore discovered, monitored and removed URLs.</p>
-                </div>
-                <span class="page-count">
-                  {{ formatNumber(getCompetitorTotal(competitor.id)) }} URLs
-                </span>
-              </div>
-
-              <div class="tabs">
-                <button
-                  :class="{ active: getTab(competitor.id) === 'new' }"
-                  @click="setTab(competitor.id, 'new')"
-                >
-                  New discoveries
-                  <span>{{ getNewUrls(competitor.id).length }}</span>
-                </button>
-
-                <button
-                  :class="{ active: getTab(competitor.id) === 'previous' }"
-                  @click="setTab(competitor.id, 'previous')"
-                >
-                  Previously detected
-                  <span>{{ getPreviousUrls(competitor.id).length }}</span>
-                </button>
-
-                <button
-                  :class="{ active: getTab(competitor.id) === 'all' }"
-                  @click="setTab(competitor.id, 'all')"
-                >
-                  All pages
-                  <span>{{ getUrls(competitor.id).length }}</span>
-                </button>
-
-                <button
-                  :class="{ active: getTab(competitor.id) === 'removed' }"
-                  @click="setTab(competitor.id, 'removed')"
-                >
-                  Removed pages
-                  <span>{{ getRemovedUrls(competitor.id).length }}</span>
-                </button>
-              </div>
-
-              <div class="url-list">
-                <div
-                  v-for="item in getVisibleUrls(competitor.id)"
-                  :key="getUrlItemKey(item)"
-                  class="url-item"
-                >
-                  <div class="url-content">
-                    <div class="url-indicator"></div>
-                    <div class="url-details">
-                      <a
-                        :href="item.url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {{ item.url }}
-                      </a>
-                      <div class="url-meta">
-                        <span v-if="getTab(competitor.id) === 'removed'">
-                          Removed from sitemap:
-                          {{ formatDate(getHistoryDate(item)) }}
-                        </span>
-                        <span v-else>
-                          First detected: {{ formatDate(item.firstSeen) }}
-                        </span>
-                        <span v-if="item.category">
-                          Category: {{ item.category }}
-                        </span>
-                        <span v-if="item.lastmod && getTab(competitor.id) !== 'removed'">
-                          Last modified: {{ formatDate(item.lastmod) }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <a
-                    class="open-url"
-                    :href="item.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="Open page"
-                  >
-                    β†—
-                  </a>
-                </div>
-
-                <div
-                  v-if="!getVisibleUrls(competitor.id).length"
-                  class="empty-list"
-                >
-                  <span class="empty-icon">
-                    {{ getTab(competitor.id) === 'new' ? 'β“' : 'β—‹' }}
-                  </span>
-                  <strong>{{ getEmptyTitle(competitor.id) }}</strong>
-                  <p>{{ getEmptyMessage(competitor.id) }}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section v-if="totalErrors" class="errors-section">
-          <div class="section-heading">
-            <div>
-              <span class="section-label">SCAN REPORT</span>
-              <h2>Sitemap issues</h2>
-            </div>
-          </div>
-
-          <div
-            v-for="competitor in competitors"
-            :key="competitor.id + '-errors'"
-          >
-            <div
-              v-for="(issue, index) in getSitemapErrors(competitor.id)"
-              :key="competitor.id + '-' + index"
-              class="error-item"
-            >
-              <span class="error-icon">!</span>
-              <div>
-                <strong>{{ competitor.name }}</strong>
-                <p>{{ issue }}</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <footer class="page-footer">
-          <span>LOOPCV COMPETITOR MONITORING</span>
-          <span>SEO monitoring dashboard</span>
-        </footer>
-      </template>
-    </div>
-  </div>
-</template>
-
-<script>
-export default {
-  data() {
-    return {
-      loading: true,
-      error: '',
-      data: {
-        lastChecked: null,
-        competitors: {},
-        history: []
-      },
-      activeTabs: {}
-    }
-  },
-
-  computed: {
-    competitors() {
-      const names = {
-        aiapply: { name: 'AIApply', domain: 'aiapply.co', initial: 'A' },
-        teal: { name: 'Teal', domain: 'tealhq.com', initial: 'T' },
-        lazyapply: { name: 'LazyApply', domain: 'lazyapply.com', initial: 'L' },
-        sonara: { name: 'Sonara', domain: 'sonara.ai', initial: 'S' },
-        applyblast: { name: 'ApplyBlast', domain: 'applyblast.com', initial: 'A' },
-        applyhero: { name: 'ApplyHero', domain: 'applyhero.ai', initial: 'A' },
-        simplify: { name: 'Simplify', domain: 'simplify.jobs', initial: 'S' },
-        jobscan: { name: 'Jobscan', domain: 'jobscan.co', initial: 'J' },
-        jobcopilot: { name: 'JobCopilot', domain: 'jobcopilot.com', initial: 'J' }
-      }
-
-      return Object.keys(this.data.competitors || {}).map(id => {
-        const entry = this.data.competitors[id] || {}
-        const known = names[id] || {}
-
-        return {
-          id,
-          ...known,
-          name: entry.name || known.name || id,
-          domain: entry.domain || known.domain || id,
-          initial: known.initial || id.charAt(0).toUpperCase()
-        }
-      })
-    },
-
-    totalUrls() {
-      return this.competitors.reduce(
-        (total, competitor) => total + this.getCompetitorTotal(competitor.id),
-        0
-      )
-    },
-
-    totalNewSeo() {
-      return this.competitors.reduce(
-        (total, competitor) => total + this.getCompetitorNew(competitor.id),
-        0
-      )
-    },
-
-    totalErrors() {
-      return this.competitors.reduce(
-        (total, competitor) => total + this.getSitemapErrors(competitor.id).length,
-        0
-      )
-    }
-  },
-
-  mounted() {
-    this.loadData()
-  },
-
-  methods: {
-    async loadData() {
-      this.loading = true
-      this.error = ''
-
-      try {
-        const response = await fetch(
-          `${import.meta.env.BASE_URL}data/competitor-monitor.json?t=${Date.now()}`
-        )
-
-        if (!response.ok) {
-          throw new Error('Could not load competitor monitoring data.')
-        }
-
-        const result = await response.json()
-
-        this.data = {
-          lastChecked: result.lastChecked || null,
-          competitors: result.competitors || {},
-          history: Array.isArray(result.history) ? result.history : []
-        }
-      } catch (error) {
-        this.error = error.message
-      } finally {
-        this.loading = false
-      }
-    },
-
-    formatNumber(value) {
-      return Number(value || 0).toLocaleString()
-    },
-
-    formatDate(value) {
-      if (!value) return 'N/A'
-
-      const date = new Date(value)
-
-      if (Number.isNaN(date.getTime())) return value
-
-      return date.toLocaleString()
-    },
-
-    getTab(competitorId) {
-      return this.activeTabs[competitorId] || 'new'
-    },
-
-    setTab(competitorId, tab) {
-      this.$set(this.activeTabs, competitorId, tab)
-    },
-
-    getUrls(competitorId) {
-      const competitor = this.data.competitors[competitorId]
-
-      if (!competitor || !competitor.urls) return []
-
-      return Object.entries(competitor.urls)
-        .filter(([, item]) => item.category === 'seoPages')
-        .map(([url, item]) => ({ url, ...item }))
-        .sort(
-          (a, b) =>
-            new Date(b.firstSeen || 0) - new Date(a.firstSeen || 0)
-        )
-    },
-
-    getNewUrls(competitorId) {
-      return (this.data.history || [])
-        .filter(item =>
-          item.competitorId === competitorId &&
-          item.category === 'seoPages' &&
-          item.status === 'new'
-        )
-        .map(historyItem => {
-          const stored =
-            this.data.competitors[competitorId]?.urls?.[historyItem.url] || {}
-
-          const detectedAt = this.getHistoryDate(historyItem)
-
-          return {
-            ...stored,
-            ...historyItem,
-            url: historyItem.url,
-            firstSeen: detectedAt || stored.firstSeen || null
-          }
-        })
-        .sort(
-          (a, b) =>
-            new Date(this.getHistoryDate(b) || 0) -
-            new Date(this.getHistoryDate(a) || 0)
-        )
-    },
-
-    getRemovedUrls(competitorId) {
-      return (this.data.history || [])
-        .filter(item =>
-          item.competitorId === competitorId &&
-          item.status === 'removed' &&
-          (!item.category || item.category === 'seoPages')
-        )
-        .map(item => ({ ...item }))
-        .sort(
-          (a, b) =>
-            new Date(this.getHistoryDate(b) || 0) -
-            new Date(this.getHistoryDate(a) || 0)
-        )
-    },
-
-    getHistoryDate(item) {
-      return (
-        item.detectedAt ||
-        item.timestamp ||
-        item.date ||
-        item.createdAt ||
-        null
-      )
-    },
-
-    getUrlItemKey(item) {
-      if (item.status === 'new' || item.status === 'removed') {
-        return `${item.url}-${item.status}-${this.getHistoryDate(item) || ''}`
-      }
-
-      return `${item.url}-${item.firstSeen || ''}`
-    },
-
-    getPreviousUrls(competitorId) {
-      const newUrls = new Set(
-        this.getNewUrls(competitorId).map(item => item.url)
-      )
-
-      return this.getUrls(competitorId).filter(
-        item => !newUrls.has(item.url)
-      )
-    },
-
-    getVisibleUrls(competitorId) {
-      const tab = this.getTab(competitorId)
-
-      if (tab === 'new') return this.getNewUrls(competitorId)
-      if (tab === 'previous') return this.getPreviousUrls(competitorId)
-      if (tab === 'removed') return this.getRemovedUrls(competitorId)
-
-      return this.getUrls(competitorId)
-    },
-
-    getEmptyTitle(competitorId) {
-      const tab = this.getTab(competitorId)
-
-      if (tab === 'new') return 'No new discoveries'
-      if (tab === 'removed') return 'No removed pages'
-
-      return 'No pages found'
-    },
-
-    getEmptyMessage(competitorId) {
-      const tab = this.getTab(competitorId)
-
-      if (tab === 'new') {
-        return 'No new SEO pages have been recorded in the monitoring history.'
-      }
-
-      if (tab === 'removed') {
-        return 'No SEO pages have been recorded as removed from the monitored sitemaps.'
-      }
-
-      return 'There are no URLs available in this view.'
-    },
-
-    getCompetitorTotal(competitorId) {
-      const competitor = this.data.competitors[competitorId]
-
-      if (!competitor) return 0
-
-      return competitor.monitoredUrls ?? this.getUrls(competitorId).length
-    },
-
-    getTotalNewDiscoveries(competitorId) {
-      return (this.data.history || []).filter(item =>
-        item.competitorId === competitorId &&
-        item.category === 'seoPages' &&
-        item.status === 'new'
-      ).length
-    },
-
-    getCompetitorNew(competitorId) {
-      return this.getTotalNewDiscoveries(competitorId)
-    },
-
-    getSitemapsChecked(competitorId) {
-      const competitor = this.data.competitors[competitorId]
-
-      if (!competitor) return 0
-
-      return (
-        competitor.sitemapCount ??
-        competitor.sitemapsChecked ??
-        0
-      )
-    },
-
-    getSitemapErrors(competitorId) {
-      const competitor = this.data.competitors[competitorId]
-
-      if (!competitor) return []
-
-      const errors = competitor.sitemapErrors || competitor.errors || []
-
-      if (Array.isArray(errors)) {
-        return errors.map(item =>
-          typeof item === 'string'
-            ? item
-            : item.message || JSON.stringify(item)
-        )
-      }
-
-      return typeof errors === 'string' && errors
-        ? [errors]
-        : []
-    }
-  }
-}
-</script>
-
-<template>
-  <div class="monitor-page">
-    <div class="monitor-container">
-      <header class="page-header">
-        <div class="header-content">
-          <div class="eyebrow">
-            <span class="status-dot"></span>
-            LOOPCV INTERNAL TOOLS
-          </div>
-          <h1>Competitor Monitoring</h1>
-          <p>Track competitor SEO activity, discover new pages and monitor content changes.</p>
-        </div>
-
-        <button class="refresh-button" :disabled="loading" @click="loadData">
-          <span :class="{ spinning: loading }">β†»</span>
-          {{ loading ? 'Refreshing...' : 'Refresh data' }}
-        </button>
-      </header>
-
-      <div v-if="loading" class="state-card">
-        <div class="loader"></div>
-        <p>Loading competitor monitoring data...</p>
-      </div>
-
-      <div v-else-if="error" class="state-card error-state">
-        <span class="state-icon">!</span>
-        <h3>Unable to load monitoring data</h3>
-        <p>{{ error }}</p>
-        <button class="retry-button" @click="loadData">Try again</button>
-      </div>
-
-      <template v-else>
-        <section class="overview-section">
-          <div class="section-heading">
-            <div>
-              <span class="section-label">OVERVIEW</span>
-              <h2>Monitoring summary</h2>
-            </div>
-            <span class="updated-label">
-              Last scan: {{ formatDate(data.lastChecked) }}
-            </span>
-          </div>
-
-          <div class="overview-grid">
-            <div class="stat-card primary-stat">
-              <div class="stat-top">
-                <span>Total SEO pages</span>
-                <span class="stat-icon blue-icon">β†—</span>
-              </div>
-              <strong>{{ formatNumber(totalUrls) }}</strong>
-              <span class="stat-description">Pages currently monitored</span>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-top">
-                <span>New SEO pages</span>
-                <span class="stat-icon green-icon">+</span>
-              </div>
-              <strong>{{ formatNumber(totalNewSeo) }}</strong>
-              <span class="stat-description">Discovered in the latest scan</span>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-top">
-                <span>Competitors</span>
-                <span class="stat-icon purple-icon">β—</span>
-              </div>
-              <strong>{{ competitors.length }}</strong>
-              <span class="stat-description">Active monitoring sources</span>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-top">
-                <span>Sitemap errors</span>
-                <span class="stat-icon" :class="totalErrors ? 'red-icon' : 'green-icon'">
-                  {{ totalErrors ? '!' : 'β“' }}
+                  <template v-if="totalErrors">!</template>
+                  <template v-else>&#10003;</template>
                 </span>
               </div>
               <strong>{{ totalErrors }}</strong>
@@ -700,7 +125,7 @@ export default {
                     +{{ formatNumber(getNewUrls(competitor.id).length) }}
                   </span>
                   <span class="activity-badge activity-removed" title="Removed SEO pages">
-                    β’{{ formatNumber(getRemovedUrls(competitor.id).length) }}
+                    &#8722;{{ formatNumber(getRemovedUrls(competitor.id).length) }}
                   </span>
                   <span class="activity-badge activity-modified" title="Modified SEO pages">
                     ~{{ formatNumber(getModifiedUrls(competitor.id).length) }}
@@ -712,7 +137,7 @@ export default {
                     ></span>
                     {{ data.competitors[competitor.id] ? 'Monitoring' : 'Not yet scanned' }}
                   </span>
-                  <span class="competitor-chevron" :class="{ rotated: isExpanded(competitor.id) }">β„</span>
+                  <span class="competitor-chevron" :class="{ rotated: isExpanded(competitor.id) }">&#8250;</span>
                 </div>
               </div>
               <a
@@ -721,7 +146,7 @@ export default {
                 target="_blank"
                 rel="noopener noreferrer"
                 :aria-label="'Visit ' + competitor.domain"
-              >β†—</a>
+              >&#8599;</a>
             </div>
 
             <div v-if="isExpanded(competitor.id)" class="competitor-details">
@@ -838,7 +263,7 @@ export default {
                   rel="noopener noreferrer"
                   aria-label="Open page"
                 >
-                  β†—
+                  &#8599;
                 </a>
               </div>
 
@@ -847,7 +272,8 @@ export default {
                 class="empty-list"
               >
                 <span class="empty-icon">
-                  {{ getTab(competitor.id) === 'new' ? 'β“' : 'β—‹' }}
+                  <template v-if="getTab(competitor.id) === 'new'">&#10003;</template>
+                  <template v-else>&#8212;</template>
                 </span>
                 <strong>{{ getEmptyTitle(competitor.id) }}</strong>
                 <p>{{ getEmptyMessage(competitor.id) }}</p>
@@ -2035,4 +1461,3 @@ export default {
   }
 }
 </style>
-
