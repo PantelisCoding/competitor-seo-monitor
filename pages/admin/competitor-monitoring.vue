@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="monitor-page">
     <div class="monitor-container">
       <header class="page-header">
@@ -12,7 +12,7 @@
         </div>
 
         <button class="refresh-button" :disabled="loading" @click="loadData">
-          <span :class="{ spinning: loading }">↻</span>
+          <span :class="{ spinning: loading }">β†»</span>
           {{ loading ? 'Refreshing...' : 'Refresh data' }}
         </button>
       </header>
@@ -45,7 +45,7 @@
             <div class="stat-card primary-stat">
               <div class="stat-top">
                 <span>Total SEO pages</span>
-                <span class="stat-icon blue-icon">↗</span>
+                <span class="stat-icon blue-icon">β†—</span>
               </div>
               <strong>{{ formatNumber(totalUrls) }}</strong>
               <span class="stat-description">Pages currently monitored</span>
@@ -63,7 +63,7 @@
             <div class="stat-card">
               <div class="stat-top">
                 <span>Competitors</span>
-                <span class="stat-icon purple-icon">◎</span>
+                <span class="stat-icon purple-icon">β—</span>
               </div>
               <strong>{{ competitors.length }}</strong>
               <span class="stat-description">Active monitoring sources</span>
@@ -73,7 +73,7 @@
               <div class="stat-top">
                 <span>Sitemap errors</span>
                 <span class="stat-icon" :class="totalErrors ? 'red-icon' : 'green-icon'">
-                  {{ totalErrors ? '!' : '✓' }}
+                  {{ totalErrors ? '!' : 'β“' }}
                 </span>
               </div>
               <strong>{{ totalErrors }}</strong>
@@ -111,7 +111,7 @@
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      {{ competitor.domain }} ↗
+                      {{ competitor.domain }} β†—
                     </a>
                   </div>
                 </div>
@@ -229,7 +229,7 @@
                     rel="noopener noreferrer"
                     aria-label="Open page"
                   >
-                    ↗
+                    β†—
                   </a>
                 </div>
 
@@ -238,7 +238,7 @@
                   class="empty-list"
                 >
                   <span class="empty-icon">
-                    {{ getTab(competitor.id) === 'new' ? '✓' : '○' }}
+                    {{ getTab(competitor.id) === 'new' ? 'β“' : 'β—‹' }}
                   </span>
                   <strong>{{ getEmptyTitle(competitor.id) }}</strong>
                   <p>{{ getEmptyMessage(competitor.id) }}</p>
@@ -359,7 +359,7 @@ export default {
 
       try {
         const response = await fetch(
-          `/data/competitor-monitor.json?t=${Date.now()}`
+          `${import.meta.env.BASE_URL}data/competitor-monitor.json?t=${Date.now()}`
         )
 
         if (!response.ok) {
@@ -588,7 +588,7 @@ export default {
         </div>
 
         <button class="refresh-button" :disabled="loading" @click="loadData">
-          <span :class="{ spinning: loading }">↻</span>
+          <span :class="{ spinning: loading }">β†»</span>
           {{ loading ? 'Refreshing...' : 'Refresh data' }}
         </button>
       </header>
@@ -621,7 +621,7 @@ export default {
             <div class="stat-card primary-stat">
               <div class="stat-top">
                 <span>Total SEO pages</span>
-                <span class="stat-icon blue-icon">↗</span>
+                <span class="stat-icon blue-icon">β†—</span>
               </div>
               <strong>{{ formatNumber(totalUrls) }}</strong>
               <span class="stat-description">Pages currently monitored</span>
@@ -639,7 +639,7 @@ export default {
             <div class="stat-card">
               <div class="stat-top">
                 <span>Competitors</span>
-                <span class="stat-icon purple-icon">◎</span>
+                <span class="stat-icon purple-icon">β—</span>
               </div>
               <strong>{{ competitors.length }}</strong>
               <span class="stat-description">Active monitoring sources</span>
@@ -649,7 +649,7 @@ export default {
               <div class="stat-top">
                 <span>Sitemap errors</span>
                 <span class="stat-icon" :class="totalErrors ? 'red-icon' : 'green-icon'">
-                  {{ totalErrors ? '!' : '✓' }}
+                  {{ totalErrors ? '!' : 'β“' }}
                 </span>
               </div>
               <strong>{{ totalErrors }}</strong>
@@ -700,7 +700,7 @@ export default {
                     +{{ formatNumber(getNewUrls(competitor.id).length) }}
                   </span>
                   <span class="activity-badge activity-removed" title="Removed SEO pages">
-                    −{{ formatNumber(getRemovedUrls(competitor.id).length) }}
+                    β’{{ formatNumber(getRemovedUrls(competitor.id).length) }}
                   </span>
                   <span class="activity-badge activity-modified" title="Modified SEO pages">
                     ~{{ formatNumber(getModifiedUrls(competitor.id).length) }}
@@ -712,7 +712,7 @@ export default {
                     ></span>
                     {{ data.competitors[competitor.id] ? 'Monitoring' : 'Not yet scanned' }}
                   </span>
-                  <span class="competitor-chevron" :class="{ rotated: isExpanded(competitor.id) }">⌄</span>
+                  <span class="competitor-chevron" :class="{ rotated: isExpanded(competitor.id) }">β„</span>
                 </div>
               </div>
               <a
@@ -721,7 +721,7 @@ export default {
                 target="_blank"
                 rel="noopener noreferrer"
                 :aria-label="'Visit ' + competitor.domain"
-              >↗</a>
+              >β†—</a>
             </div>
 
             <div v-if="isExpanded(competitor.id)" class="competitor-details">
@@ -838,7 +838,7 @@ export default {
                   rel="noopener noreferrer"
                   aria-label="Open page"
                 >
-                  ↗
+                  β†—
                 </a>
               </div>
 
@@ -847,7 +847,7 @@ export default {
                 class="empty-list"
               >
                 <span class="empty-icon">
-                  {{ getTab(competitor.id) === 'new' ? '✓' : '○' }}
+                  {{ getTab(competitor.id) === 'new' ? 'β“' : 'β—‹' }}
                 </span>
                 <strong>{{ getEmptyTitle(competitor.id) }}</strong>
                 <p>{{ getEmptyMessage(competitor.id) }}</p>
@@ -969,7 +969,7 @@ export default {
 
       try {
         const response = await fetch(
-          `/data/competitor-monitor.json?t=${Date.now()}`
+          `${import.meta.env.BASE_URL}data/competitor-monitor.json?t=${Date.now()}`
         )
 
         if (!response.ok) {
@@ -2035,3 +2035,4 @@ export default {
   }
 }
 </style>
+
