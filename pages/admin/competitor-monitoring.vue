@@ -441,7 +441,7 @@ export default {
     },
 
     getTab(competitorId) {
-      return this.activeTabs[competitorId] || 'new'
+      return this.activeTabs[competitorId] || 'all'
     },
 
     setTab(competitorId, tab) {
