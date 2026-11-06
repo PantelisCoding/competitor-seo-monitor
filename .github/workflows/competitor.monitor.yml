@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: competitor-monitoring
@@ -54,20 +55,8 @@ jobs:
             echo "No competitor changes detected."
           fi
 
-      - name: Trigger Netlify deployment
+      - name: Trigger GitHub Pages deployment
         if: steps.commit_data.outputs.changed == 'true'
-        shell: bash
         env:
-          NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
-        run: |
-          URL="$(printf '%s' "$NETLIFY_BUILD_HOOK_URL" | tr -d '\r\n ')"
-
-          if [[ ! "$URL" =~ ^https://api\.netlify\.com/build_hooks/[A-Za-z0-9_-]+$ ]]; then
-            echo "ERROR: Invalid Netlify Build Hook URL."
-            exit 1
-          fi
-
-          curl --fail --silent --show-error \
-            --request POST \
-            --data '{}' \
-            "$URL"
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main
