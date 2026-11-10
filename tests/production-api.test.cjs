@@ -91,7 +91,7 @@ test('production backend rejects unauthenticated users and cross-origin writes',
   assert.equal(mock.scans, 0)
 })
 
-test('production add, delete, persistence and restore use GitHub commits', async () => {
+test('production add, delete, persistence and restore use GitHub commits without extra scans', async () => {
   const mock = mockGithub()
   const candidate = { name: 'LoopCV', website: 'https://www.loopcv.pro', sitemap: 'https://www.loopcv.pro/sitemap.xml' }
 
@@ -99,7 +99,7 @@ test('production add, delete, persistence and restore use GitHub commits', async
   assert.equal(added.status, 201)
   assert.equal((await added.json()).competitor.id, 'loopcv-pro')
   assert.equal(mock.files['static/data/extra-competitors.json'].length, 1)
-  assert.equal(mock.scans, 1)
+  assert.equal(mock.scans, 0)
   assert.equal(mock.commits, 1)
 
   const duplicate = await backend.handleCompetitors(request('POST', candidate), env(), mock.handler)
@@ -122,7 +122,8 @@ test('production add, delete, persistence and restore use GitHub commits', async
   assert.deepEqual(mock.files['static/data/disabled-competitors.json'], [])
   assert.equal(mock.files['static/data/extra-competitors.json'].length, 1)
   assert.equal(mock.commits, 3)
-  assert.equal(mock.scans, 3)
+  assert.equal(mock.scans, 0)
+  assert.ok(!mock.paths.some(([, url]) => url.includes('/actions/workflows/')))
 })
 
 test('built-in competitors can be disabled, and invalid inputs rejected', async () => {
@@ -200,5 +201,5 @@ test('a previously locally removed competitor is re-enabled when first added on 
   assert.equal(response.status, 201)
   assert.equal(mock.files['static/data/extra-competitors.json'].length, 1)
   assert.deepEqual(mock.files['static/data/disabled-competitors.json'], [])
-  assert.equal(mock.scans, 1)
+  assert.equal(mock.scans, 0)
 })
