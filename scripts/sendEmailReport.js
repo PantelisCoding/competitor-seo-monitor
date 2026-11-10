@@ -12,7 +12,8 @@ const RECIPIENTS = [
   'g.avgenakis@loopcv.com',
   'lucas@loopcv.com',
   'prafull@outsmartt.com',
-  'ayushi.roy@outsmartt.com'
+  'ayushi.roy@outsmartt.com',
+  'pandelisan28@outlook.com'
 ]
 const MAX_URLS_PER_SECTION = 30
 
@@ -128,3 +129,4 @@ if (require.main === module) {
 }
 
 module.exports = { newEvents, makeReport }
+
