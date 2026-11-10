@@ -55,12 +55,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment "$ISSUE_NUMBER" --body "Competitor added to the monitoring configuration. A scan has been requested; it will appear in the dashboard once monitoring data is updated."
+          gh issue comment "$ISSUE_NUMBER" --body "Competitor added to monitoring configuration. The next daily scheduled scan will process it and update dashboard data."
           gh issue close "$ISSUE_NUMBER"
 
-      - name: Start a new competitor scan
-        if: steps.commit.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh workflow run competitor.monitor.yml --ref main || echo "Immediate scan unavailable; the next scheduled scan will pick up the competitor."
