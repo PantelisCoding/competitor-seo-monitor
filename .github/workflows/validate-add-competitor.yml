@@ -15,5 +15,5 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: node --test tests/competitor-config.test.cjs
+      - run: node --test tests/*.test.cjs
       - run: npm run build
