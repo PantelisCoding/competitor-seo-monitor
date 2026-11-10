@@ -171,15 +171,6 @@ function validateExtras(entries) {
   }
   return result
 }
-async function dispatchScan(config, fetcher = fetch) {
-  try {
-    const response = await github(
-      '/repos/' + config.repo + '/actions/workflows/competitor.monitor.yml/dispatches',
-      { method: 'POST', body: { ref: config.branch } }, config, fetcher
-    )
-    return response.status === 204
-  } catch { return false }
-}
 async function handleCompetitors(req, env = process.env, fetcher = fetch) {
   try {
     const config = settings(env)
@@ -217,8 +208,10 @@ async function handleCompetitors(req, env = process.env, fetcher = fetch) {
         return disabled.includes(id) ? null : [...disabled, id]
       }, config, fetcher)
       if (result.unchanged) return json(409, { error: 'Competitor already removed' })
-      const scanRequested = await dispatchScan(config, fetcher)
-      return json(200, { id, scanRequested, message: 'Competitor removed. Historical SEO data was preserved.' })
+      return json(200, {
+        id,
+        message: 'Competitor removed. Historical SEO data was preserved. The next scheduled daily scan will exclude it.'
+      })
     }
 
     let candidate
@@ -232,8 +225,10 @@ async function handleCompetitors(req, env = process.env, fetcher = fetch) {
     if (same && !disabled.includes(same.id)) return json(409, { error: 'Competitor already monitored' })
     if (same) {
       await updateConfig(DISABLED_FILE, items => validateDisabled(items).filter(id => id !== same.id), config, fetcher)
-      const scanRequested = await dispatchScan(config, fetcher)
-      return json(200, { competitor: same, scanRequested, message: 'Competitor restored.' })
+      return json(200, {
+        competitor: same,
+        message: 'Competitor restored. Monitoring resumes with the next daily scan.'
+      })
     }
     await updateConfig(EXTRAS_FILE, items => {
       const latest = validateExtras(items)
@@ -246,13 +241,9 @@ async function handleCompetitors(req, env = process.env, fetcher = fetch) {
       await updateConfig(DISABLED_FILE, items =>
         validateDisabled(items).filter(id => id !== candidate.id), config, fetcher)
     }
-    const scanRequested = await dispatchScan(config, fetcher)
     return json(201, {
       competitor: candidate,
-      scanRequested,
-      message: scanRequested
-        ? 'Competitor saved to GitHub. A scan has been requested.'
-        : 'Competitor saved to GitHub. It will be scanned on the next scheduled run.'
+      message: 'Competitor saved to GitHub. It will be scanned on the next scheduled daily run.'
     })
   } catch (error) {
     // Avoid returning credentials, upstream bodies or other internal errors to clients.
