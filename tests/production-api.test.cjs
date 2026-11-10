@@ -190,3 +190,15 @@ test('sessions expire and production endpoints fail closed without configuration
   const noConfig = await backend.handleCompetitors(request('GET', null), {}, mock.handler)
   assert.equal(noConfig.status, 503)
 })
+
+
+test('a previously locally removed competitor is re-enabled when first added on live API', async () => {
+  const mock = mockGithub()
+  mock.files['static/data/disabled-competitors.json'] = ['loopcv-pro']
+  const candidate = { name: 'LoopCV', website: 'https://www.loopcv.pro' }
+  const response = await backend.handleCompetitors(request('POST', candidate), env(), mock.handler)
+  assert.equal(response.status, 201)
+  assert.equal(mock.files['static/data/extra-competitors.json'].length, 1)
+  assert.deepEqual(mock.files['static/data/disabled-competitors.json'], [])
+  assert.equal(mock.scans, 1)
+})
