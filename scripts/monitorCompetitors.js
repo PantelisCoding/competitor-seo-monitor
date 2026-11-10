@@ -3,7 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const { XMLParser } = require('fast-xml-parser')
 const { chromium } = require('playwright')
-const { readExtraCompetitors } = require('./competitorConfig.cjs')
+const { readExtraCompetitors, readDisabledCompetitors } = require('./competitorConfig.cjs')
 
 const DATA_PATH = path.join(__dirname, '../static/data/competitor-monitor.json')
 const CONCURRENCY = 5
@@ -12,11 +12,13 @@ const MAX_SITEMAPS = 500
 const MAX_DEPTH = 5
 const MONITORING_CONFIG_VERSION = 1
 
-const COMPETITORS = require('./builtinCompetitors.cjs')
-
-
-const ADDITIONAL_COMPETITORS = readExtraCompetitors(COMPETITORS)
-COMPETITORS.push(...ADDITIONAL_COMPETITORS)
+const BUILTIN_COMPETITORS = require('./builtinCompetitors.cjs')
+const DISABLED_COMPETITOR_IDS = new Set(readDisabledCompetitors())
+const ADDITIONAL_COMPETITORS = readExtraCompetitors(BUILTIN_COMPETITORS)
+  .filter(item => !DISABLED_COMPETITOR_IDS.has(item.id))
+const COMPETITORS = BUILTIN_COMPETITORS
+  .filter(item => !DISABLED_COMPETITOR_IDS.has(item.id))
+  .concat(ADDITIONAL_COMPETITORS)
 
 const parser = new XMLParser({
   ignoreAttributes: true,
