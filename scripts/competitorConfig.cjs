@@ -5,6 +5,7 @@ const path = require('node:path')
 const net = require('node:net')
 
 const CONFIG_PATH = path.join(__dirname, '../static/data/extra-competitors.json')
+const DISABLED_PATH = path.join(__dirname, '../static/data/disabled-competitors.json')
 
 function parseHttpsUrl(value, label) {
   let url
@@ -81,4 +82,22 @@ function readExtraCompetitors(existing = [], configPath = CONFIG_PATH) {
   return extras
 }
 
-module.exports = { CONFIG_PATH, normalizeCompetitor, assertUnique, readExtraCompetitors }
+function readDisabledCompetitors(disabledPath = DISABLED_PATH) {
+  if (!fs.existsSync(disabledPath)) return []
+  const parsed = JSON.parse(fs.readFileSync(disabledPath, 'utf8'))
+  if (!Array.isArray(parsed) || parsed.some(id =>
+    typeof id !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)
+  )) {
+    throw new Error('disabled-competitors.json must contain valid competitor IDs')
+  }
+  return [...new Set(parsed)]
+}
+
+module.exports = {
+  CONFIG_PATH,
+  DISABLED_PATH,
+  normalizeCompetitor,
+  assertUnique,
+  readExtraCompetitors,
+  readDisabledCompetitors
+}
