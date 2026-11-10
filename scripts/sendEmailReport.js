@@ -1,13 +1,13 @@
+
 'use strict'
 
-// Sends a change-based competitor SEO monitoring report using AgentMail.
-// No third-party Node dependency is required (Node.js 20+).
 const fs = require('node:fs')
 const path = require('node:path')
 
 const ROOT = path.resolve(__dirname, '..')
 const DATA_FILE = path.join(ROOT, 'static', 'data', 'competitor-monitor.json')
 const SENDER_INBOX = 'competitor-reports@agentmail.to'
+
 const RECIPIENTS = [
   'g.avgenakis@loopcv.com',
   'lucas@loopcv.com',
@@ -15,6 +15,7 @@ const RECIPIENTS = [
   'ayushi.roy@outsmartt.com',
   'pandelisan28@outlook.com'
 ]
+
 const MAX_URLS_PER_SECTION = 30
 
 function readJson(filename) {
@@ -22,11 +23,17 @@ function readJson(filename) {
 }
 
 function eventKey(entry) {
-  return JSON.stringify([entry.competitorId || entry.competitor, entry.status, entry.url, entry.detectedAt])
+  return JSON.stringify([
+    entry.competitorId || entry.competitor,
+    entry.status,
+    entry.url,
+    entry.detectedAt
+  ])
 }
 
 function newEvents(previous, current) {
   const known = new Set((previous.history || []).map(eventKey))
+
   return (current.history || []).filter(event =>
     (event.status === 'new' || event.status === 'removed') &&
     event.category !== 'jobListings' &&
@@ -34,62 +41,171 @@ function newEvents(previous, current) {
   )
 }
 
-function formatSection(title, events) {
-  if (!events.length) return `${title}: 0`
+function formatUrls(title, events) {
+  if (!events.length) return []
+
   const shown = events.slice(0, MAX_URLS_PER_SECTION)
-  const lines = shown.map(event => `- ${event.competitor || event.competitorId || 'Unknown'}: ${event.url}`)
-  if (events.length > shown.length) lines.push(`... and ${events.length - shown.length} more`)
-  return `${title}: ${events.length}\n${lines.join('\n')}`
+
+  const lines = [
+    `${title}: ${events.length}`,
+    ...shown.map(event => `  - ${event.url}`)
+  ]
+
+  if (events.length > shown.length) {
+    lines.push(`  ... and ${events.length - shown.length} more`)
+  }
+
+  return lines
 }
 
 function makeReport(previous, current) {
   const events = newEvents(previous, current)
-  const added = events.filter(event => event.status === 'new')
-  const removed = events.filter(event => event.status === 'removed')
-  const competitors = Object.values(current.competitors || {})
-  const errors = competitors.flatMap(c =>
-    (Array.isArray(c.sitemapErrors) ? c.sitemapErrors : []).map(e => ({
-      competitor: c.name || c.domain || 'Unknown',
-      message: (typeof e === 'object' && e !== null ? e.message : String(e)) || 'Unknown sitemap error'
+  const added = events.filter(e => e.status === 'new')
+  const removed = events.filter(e => e.status === 'removed')
+
+  const competitors = Object.entries(current.competitors || {})
+    .map(([id, data]) => ({ id, ...data }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const date = current.lastChecked || new Date().toISOString()
+
+  const errors = competitors.flatMap(competitor =>
+    (Array.isArray(competitor.sitemapErrors)
+      ? competitor.sitemapErrors
+      : []
+    ).map(error => ({
+      competitor: competitor.name,
+      message: error && typeof error === 'object'
+        ? error.message || 'Unknown sitemap error'
+        : String(error)
     }))
   )
-  const date = current.lastChecked || new Date().toISOString()
-  const subject = `[Competitor SEO] ${added.length} new, ${removed.length} removed${errors.length ? `, ${errors.length} errors` : ''} — ${date.slice(0, 10)}`
+
+  const subject = `[Competitor SEO] Daily Report - ${date.slice(0, 10)} | ${added.length} new, ${removed.length} removed`
+
   const body = [
-    'Competitor SEO Monitoring Report',
+    'COMPETITOR SEO MONITORING - DAILY REPORT',
     `Scan completed: ${date}`,
-    `Competitors scanned (available results): ${competitors.length}`,
-    `Total monitored SEO pages: ${competitors.reduce((sum, c) => sum + (Number(c.monitoredUrls) || 0), 0)}`,
     '',
-    formatSection('New SEO pages', added),
+    '========================================',
+    'CHANGES BY COMPETITOR',
+    '========================================'
+  ]
+
+  if (added.length === 0 && removed.length === 0) {
+    body.push(
+      '',
+      'No SEO changes detected in the latest scan.'
+    )
+  }
+
+  for (const competitor of competitors) {
+    const competitorEvents = events.filter(event =>
+      event.competitorId === competitor.id ||
+      (
+        !event.competitorId &&
+        event.competitor === competitor.name
+      )
+    )
+
+    const newPages = competitorEvents.filter(e => e.status === 'new')
+    const removedPages = competitorEvents.filter(e => e.status === 'removed')
+
+    const previousCompetitor = previous.competitors?.[competitor.id]
+    const wasUpdated = competitor.lastChecked !== previousCompetitor?.lastChecked
+
+    body.push(
+      '',
+      `${competitor.name} (${competitor.domain})`
+    )
+
+    if (!wasUpdated) {
+      body.push('No new scan results available for this competitor.')
+    } else if (!newPages.length && !removedPages.length) {
+      body.push('No changes detected.')
+    } else {
+      body.push(...formatUrls('New SEO Pages', newPages))
+      body.push(...formatUrls('Removed SEO Pages', removedPages))
+    }
+
+    const competitorErrors = Array.isArray(competitor.sitemapErrors)
+      ? competitor.sitemapErrors
+      : []
+
+    if (competitorErrors.length) {
+      body.push(`Sitemap Errors: ${competitorErrors.length}`)
+
+      for (const error of competitorErrors.slice(0, 5)) {
+        body.push(`  - ${error.message || String(error)}`)
+      }
+
+      if (competitorErrors.length > 5) {
+        body.push(`  ... and ${competitorErrors.length - 5} more errors`)
+      }
+    }
+  }
+
+  const totalPages = competitors.reduce(
+    (sum, competitor) =>
+      sum + (Number(competitor.monitoredUrls) || 0),
+    0
+  )
+
+  body.push(
     '',
-    formatSection('Removed SEO pages', removed),
-    '',
+    '========================================',
+    'SUMMARY',
+    '========================================',
+    `Competitors with available results: ${competitors.length}`,
+    `Total monitored SEO pages: ${totalPages}`,
+    `New SEO pages: ${added.length}`,
+    `Removed SEO pages: ${removed.length}`,
     `Sitemap errors: ${errors.length}`,
-    ...errors.slice(0, 15).map(e => `- ${e.competitor}: ${e.message}`),
-    ...(errors.length > 15 ? [`... and ${errors.length - 15} more errors`] : []),
     '',
-    'This report is based on changes detected by the latest automated sitemap scan.',
+    '========================================',
+    'ALL COMPETITORS WE TRACK',
+    '========================================'
+  )
+
+  for (const competitor of competitors) {
+    body.push(`- ${competitor.name} - ${competitor.domain}`)
+  }
+
+  body.push(
+    '',
+    '========================================',
+    'HOW THIS REPORT WORKS',
+    '========================================',
+    'We compare competitor sitemaps with the previous scan to',
+    'identify new and removed SEO URLs. Job listings are excluded.',
+    '',
+    'Changes that appear and disappear between scans may not be detected.',
+    '',
     'Sent automatically via AgentMail.'
-  ].join('\n')
-  return { subject, text: body, added: added.length, removed: removed.length, errors: errors.length }
+  )
+
+  return {
+    subject,
+    text: body.join('\n'),
+    added: added.length,
+    removed: removed.length,
+    errors: errors.length
+  }
 }
 
 async function main() {
   const beforeFile = process.env.MONITOR_BEFORE_PATH
+
   if (!beforeFile || !fs.existsSync(beforeFile)) {
-    throw new Error('Missing previous-scan snapshot (MONITOR_BEFORE_PATH). Refusing to send a potentially inaccurate report.')
+    throw new Error(
+      'Missing previous-scan snapshot (MONITOR_BEFORE_PATH).'
+    )
   }
+
   const previous = readJson(beforeFile)
   const current = readJson(DATA_FILE)
   const report = makeReport(previous, current)
 
-  if (!report.added && !report.removed && !report.errors && process.env.FORCE_EMAIL_REPORT !== 'true') {
-    console.log('No new/removed SEO pages or sitemap errors; skipping email.')
-    return
-  }
-
-  // Run locally without transmitting messages: DRY_RUN=true node scripts/sendEmailReport.js
   if (process.env.DRY_RUN === 'true') {
     console.log(report.subject)
     console.log(report.text)
@@ -98,9 +214,14 @@ async function main() {
   }
 
   const key = process.env.AGENTMAIL_API_KEY
-  if (!key) throw new Error('AGENTMAIL_API_KEY is not set.')
 
-  const endpoint = `https://api.agentmail.to/v0/inboxes/${encodeURIComponent(SENDER_INBOX)}/messages/send`
+  if (!key) {
+    throw new Error('AGENTMAIL_API_KEY is not set.')
+  }
+
+  const endpoint =
+    `https://api.agentmail.to/v0/inboxes/${encodeURIComponent(SENDER_INBOX)}/messages/send`
+
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -114,11 +235,16 @@ async function main() {
     }),
     signal: AbortSignal.timeout(30000)
   })
+
   if (!response.ok) {
-    // Don't dump response bodies, which could contain sensitive account information.
-    throw new Error(`AgentMail request failed (HTTP ${response.status}).`)
+    throw new Error(
+      `AgentMail request failed (HTTP ${response.status}).`
+    )
   }
-  console.log(`AgentMail report sent to ${RECIPIENTS.length} recipients.`)
+
+  console.log(
+    `AgentMail daily report sent to ${RECIPIENTS.length} recipients.`
+  )
 }
 
 if (require.main === module) {
@@ -129,4 +255,3 @@ if (require.main === module) {
 }
 
 module.exports = { newEvents, makeReport }
-
