@@ -10,7 +10,12 @@ const localCompetitorApi = require('../scripts/localCompetitorApi.cjs')
 
 function createApi(configPath) {
   let handler
-  localCompetitorApi({ configPath, builtins: [{ id: 'aiapply', domain: 'aiapply.co' }] })
+  localCompetitorApi({
+    configPath,
+    disabledPath: path.join(path.dirname(configPath), 'disabled-competitors.json'),
+    databasePath: path.join(path.dirname(configPath), 'monitor.json'),
+    builtins: [{ id: 'aiapply', domain: 'aiapply.co' }]
+  })
     .configureServer({ middlewares: { use(route, callback) {
       assert.equal(route, '/api/local-competitors')
       handler = callback
@@ -76,6 +81,77 @@ test('rejects browser cross-origin submission and invalid inputs', async () => {
       body: { name: 'Rezi', website: 'https://rezi.ai' }
     })).status, 415)
     assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+
+test('deleting a manually added competitor removes it from active monitoring', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'competitor-delete-test-'))
+  try {
+    const configPath = path.join(dir, 'extra-competitors.json')
+    const disabledPath = path.join(dir, 'disabled-competitors.json')
+    const dbPath = path.join(dir, 'monitor.json')
+    fs.writeFileSync(configPath, '[]\n')
+    fs.writeFileSync(dbPath, JSON.stringify({
+      competitors: { 'loopcv-pro': { name: 'LoopCV', urls: { 'https://www.loopcv.pro/': { firstSeen: '2026-01-01' } } } },
+      history: [{ competitorId: 'loopcv-pro', status: 'new', url: 'https://www.loopcv.pro/' }]
+    }))
+    const snapshot = fs.readFileSync(dbPath, 'utf8')
+    const request = createApi(configPath)
+    const candidate = { name: 'LoopCV', website: 'https://www.loopcv.pro', sitemap: 'https://www.loopcv.pro/sitemap.xml' }
+
+    assert.equal((await request({ body: candidate })).status, 201)
+    const removed = await request({ method: 'DELETE', body: { id: 'loopcv-pro' } })
+    assert.equal(removed.status, 200)
+    assert.match(removed.json.message, /preserved/)
+    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), [])
+    assert.deepEqual(JSON.parse(fs.readFileSync(disabledPath, 'utf8')), ['loopcv-pro'])
+    assert.equal(fs.readFileSync(dbPath, 'utf8'), snapshot)
+    const active = await request({ method: 'GET' })
+    assert.equal(active.status, 200)
+    assert.deepEqual(active.json.competitors, [])
+    assert.deepEqual(active.json.disabledIds, ['loopcv-pro'])
+    assert.equal((await request({ method: 'DELETE', body: { id: 'loopcv-pro' } })).status, 404)
+
+    const restored = await request({ body: candidate })
+    assert.equal(restored.status, 201)
+    assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).length, 1)
+    assert.deepEqual(JSON.parse(fs.readFileSync(disabledPath, 'utf8')), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a built-in competitor can be disabled and restored without deleting its settings', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'builtin-delete-test-'))
+  try {
+    const configPath = path.join(dir, 'extra-competitors.json')
+    const disabledPath = path.join(dir, 'disabled-competitors.json')
+    fs.writeFileSync(configPath, '[]\n')
+    const request = createApi(configPath)
+    assert.equal((await request({ method: 'DELETE', body: { id: 'aiapply' } })).status, 200)
+    assert.deepEqual(JSON.parse(fs.readFileSync(disabledPath, 'utf8')), ['aiapply'])
+    const restored = await request({ body: { name: 'AIApply', website: 'https://aiapply.co' } })
+    assert.equal(restored.status, 200)
+    assert.match(restored.json.message, /restored/)
+    assert.deepEqual(JSON.parse(fs.readFileSync(disabledPath, 'utf8')), [])
+    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('deletion validates competitor identities', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'delete-identity-test-'))
+  try {
+    const configPath = path.join(dir, 'extra-competitors.json')
+    fs.writeFileSync(configPath, '[]\n')
+    const request = createApi(configPath)
+    assert.equal((await request({ method: 'DELETE', body: { id: '../something' } })).status, 400)
+    assert.equal((await request({ method: 'DELETE', body: { id: 'not-tracked' } })).status, 404)
+    assert.equal((await request({ method: 'DELETE', body: { id: 'aiapply', unexpected: true }, origin: 'https://attacker.example' })).status, 403)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }
