@@ -118,7 +118,7 @@ test('production add, delete, persistence and restore use GitHub commits without
 
   const restored = await backend.handleCompetitors(request('POST', candidate), env(), mock.handler)
   assert.equal(restored.status, 200)
-  assert.equal((await restored.json()).message, 'Competitor restored.')
+  assert.match((await restored.json()).message, /Competitor restored.*next daily scan/)
   assert.deepEqual(mock.files['static/data/disabled-competitors.json'], [])
   assert.equal(mock.files['static/data/extra-competitors.json'].length, 1)
   assert.equal(mock.commits, 3)
