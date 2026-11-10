@@ -4,7 +4,13 @@ name: Competitor SEO Monitoring
 on:
   schedule:
     - cron: "0 * * * *"
+
   workflow_dispatch:
+    inputs:
+      send_test_email:
+        description: "Send a test report even if no changes are detected"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -35,10 +41,9 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Preserve previous monitoring snapshot
-
         shell: bash
-
         run: cp static/data/competitor-monitor.json "$RUNNER_TEMP/competitor-monitor-before.json"
+
       - name: Run competitor scanner
         run: node scripts/monitorCompetitors.js
 
@@ -60,12 +65,8 @@ jobs:
           fi
 
       - name: Email competitor changes with AgentMail
-
         env:
-
           AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
-
           MONITOR_BEFORE_PATH: ${{ runner.temp }}/competitor-monitor-before.json
-
+          FORCE_EMAIL_REPORT: ${{ inputs.send_test_email == true && 'true' || 'false' }}
         run: node scripts/sendEmailReport.js
-
