@@ -55,8 +55,10 @@ jobs:
             echo "No competitor changes detected."
           fi
 
-      - name: Trigger GitHub Pages deployment
-        if: steps.commit_data.outputs.changed == 'true'
+      # Netlify (if selected later) rebuilds automatically on repository pushes.
+      # Opt-in GitHub Pages deployment only when that workflow is configured.
+      - name: Trigger optional GitHub Pages deployment
+        if: steps.commit_data.outputs.changed == 'true' && vars.DEPLOY_GITHUB_PAGES == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy.yml --ref main
