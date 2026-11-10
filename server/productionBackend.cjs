@@ -240,6 +240,12 @@ async function handleCompetitors(req, env = process.env, fetcher = fetch) {
       assertUnique(candidate, builtins.concat(latest))
       return [...latest, candidate]
     }, config, fetcher)
+    // A locally removed competitor may have been committed with its configuration
+    // removed but its ID still in the disabled list. Re-adding it restores scanning.
+    if (disabled.includes(candidate.id)) {
+      await updateConfig(DISABLED_FILE, items =>
+        validateDisabled(items).filter(id => id !== candidate.id), config, fetcher)
+    }
     const scanRequested = await dispatchScan(config, fetcher)
     return json(201, {
       competitor: candidate,
