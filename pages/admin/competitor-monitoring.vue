@@ -11,11 +11,42 @@
           <p>Track competitor SEO activity, discover new pages and monitor content changes.</p>
         </div>
 
-        <button class="refresh-button" :disabled="loading" @click="loadData">
-          <span :class="{ spinning: loading }">↻</span>
-          {{ loading ? 'Refreshing...' : 'Refresh data' }}
-        </button>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="add-competitor-button"
+            :aria-expanded="showAddCompetitor"
+            aria-controls="add-competitor-panel"
+            @click="showAddCompetitor = !showAddCompetitor"
+          >
+            {{ showAddCompetitor ? 'Close form' : '+ Add Competitor' }}
+          </button>
+          <button type="button" class="refresh-button" :disabled="loading" @click="loadData">
+            <span :class="{ spinning: loading }">↻</span>
+            {{ loading ? 'Refreshing...' : 'Refresh data' }}
+          </button>
+        </div>
       </header>
+      <section v-if="showAddCompetitor" id="add-competitor-panel" class="add-competitor-panel">
+        <div>
+          <strong>Add a competitor</strong>
+          <p>Enter the website you want to monitor. The request will open in GitHub for approval and automated setup.</p>
+        </div>
+        <form class="add-competitor-form" @submit.prevent="requestCompetitor">
+          <label for="new-competitor-name">Competitor name
+            <input id="new-competitor-name" v-model.trim="newCompetitor.name" maxlength="80" required placeholder="e.g. Rezi">
+          </label>
+          <label for="new-competitor-website">Website URL
+            <input id="new-competitor-website" v-model.trim="newCompetitor.website" type="url" required placeholder="https://www.rezi.ai">
+          </label>
+          <label for="new-competitor-sitemap">Sitemap URL (optional)
+            <input id="new-competitor-sitemap" v-model.trim="newCompetitor.sitemap" type="url" placeholder="https://www.rezi.ai/sitemap.xml">
+          </label>
+          <button class="add-competitor-button" type="submit">Create GitHub request</button>
+        </form>
+        <p v-if="addCompetitorError" class="add-competitor-error" role="alert">{{ addCompetitorError }}</p>
+        <small>Only repository contributors with write access can approve additions. The competitor appears after its first successful scan.</small>
+      </section>
 
       <div v-if="loading" class="state-card">
         <div class="loader"></div>
@@ -330,7 +361,10 @@ export default {
         history: []
       },
       activeTabs: {},
-      expandedCompetitor: null
+      expandedCompetitor: null,
+      showAddCompetitor: false,
+      addCompetitorError: '',
+      newCompetitor: { name: '', website: '', sitemap: '' }
     }
   },
 
@@ -389,6 +423,46 @@ export default {
   },
 
   methods: {
+    requestCompetitor() {
+      this.addCompetitorError = ''
+      const name = this.newCompetitor.name.trim()
+      const website = this.newCompetitor.website.trim()
+      const sitemap = this.newCompetitor.sitemap.trim()
+      if (!name || !website) {
+        this.addCompetitorError = 'Name and website are required.'
+        return
+      }
+      try {
+        const site = new URL(website)
+        if (site.protocol !== 'https:' || site.username || site.password || !site.hostname.includes('.')) {
+          throw new Error('Website must be a valid HTTPS URL.')
+        }
+        const domain = site.hostname.toLowerCase().replace(/^www\./, '')
+        if (this.competitors.some(item => item.domain.toLowerCase().replace(/^www\./, '') === domain)) {
+          throw new Error('This competitor is already being monitored.')
+        }
+        if (sitemap) {
+          const sitemapUrl = new URL(sitemap)
+          const sitemapHost = sitemapUrl.hostname.toLowerCase().replace(/^www\./, '')
+          if (sitemapUrl.protocol !== 'https:' || (sitemapHost !== domain && !sitemapHost.endsWith('.' + domain))) {
+            throw new Error('Sitemap must use HTTPS and belong to the competitor domain.')
+          }
+        }
+      } catch (error) {
+        this.addCompetitorError = error.message || 'Please enter valid URLs.'
+        return
+      }
+      const issueTitle = '[Add Competitor] ' + name
+      const issueBody = [
+        'Competitor name: ' + name,
+        'Website URL: ' + website,
+        'Sitemap URL: ' + (sitemap || 'auto')
+      ].join('\n')
+      const repo = import.meta.env.VITE_MONITOR_REPOSITORY || 'Loopcv/monitor-competitors-sitemap'
+      const issueUrl = 'https://github.com/' + repo + '/issues/new?title=' +
+        encodeURIComponent(issueTitle) + '&body=' + encodeURIComponent(issueBody)
+      window.open(issueUrl, '_blank', 'noopener,noreferrer')
+    },
     async loadData() {
       this.loading = true
       this.error = ''
@@ -651,6 +725,40 @@ export default {
 </script>
 
 <style scoped>
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.add-competitor-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  border: 1px solid #2563eb;
+  border-radius: 9px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.add-competitor-button:hover { background: #1d4ed8; border-color: #1d4ed8; }
+.add-competitor-panel {
+  margin-bottom: 28px;
+  padding: 22px;
+  border: 1px solid #dce4f0;
+  border-radius: 14px;
+  background: #fff;
+}
+.add-competitor-panel strong { color: #172033; font-size: 16px; }
+.add-competitor-panel p, .add-competitor-panel small { color: #64748b; font-size: 12px; line-height: 1.5; }
+.add-competitor-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 16px 0 10px; }
+.add-competitor-form label { display: flex; flex: 1 1 190px; min-width: 0; flex-direction: column; gap: 7px; color: #64748b; font-size: 12px; font-weight: 650; }
+.add-competitor-form input { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #dce4f0; border-radius: 9px; background: #fff; color: #172033; }
+.add-competitor-panel .add-competitor-error { color: #c2410c; }
 .monitor-page {
   min-height: 100vh;
   padding: 48px 28px 70px;
