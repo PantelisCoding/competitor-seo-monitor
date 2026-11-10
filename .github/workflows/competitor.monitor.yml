@@ -48,7 +48,21 @@ jobs:
 
           if ! git diff --cached --quiet; then
             git commit -m "Update competitor SEO monitoring data"
-            git push
+            # An administrator may add/remove competitors during a scan.
+            # Rebase the completed scan data on top of those configuration commits.
+            pushed=false
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then
+                pushed=true
+                break
+              fi
+              sleep "$((attempt * 2))"
+            done
+            if [ "$pushed" != "true" ]; then
+              echo "Could not push scan results after retries."
+              exit 1
+            fi
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
