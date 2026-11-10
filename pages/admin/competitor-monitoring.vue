@@ -49,6 +49,7 @@
       </section>
 
       <p v-if="addCompetitorSuccess" class="add-competitor-success" role="status">{{ addCompetitorSuccess }}</p>
+      <p v-if="deleteCompetitorError" class="add-competitor-error-global" role="alert">{{ deleteCompetitorError }}</p>
 
       <div v-if="loading" class="state-card">
         <div class="loader"></div>
@@ -180,6 +181,15 @@
                 rel="noopener noreferrer"
                 :aria-label="'Visit ' + competitor.domain"
               >&#8599;</a>
+              <button
+                type="button"
+                class="competitor-delete-button"
+                :disabled="removingCompetitorId === competitor.id"
+                :aria-label="'Delete ' + competitor.name + ' from monitoring'"
+                @click.stop="deleteCompetitor(competitor)"
+              >
+                {{ removingCompetitorId === competitor.id ? 'Removing...' : 'Delete' }}
+              </button>
             </div>
 
             <div v-if="isExpanded(competitor.id)" class="competitor-details">
@@ -368,6 +378,9 @@ export default {
       addCompetitorError: '',
       addCompetitorSuccess: '',
       savingCompetitor: false,
+      removingCompetitorId: null,
+      deleteCompetitorError: '',
+      disabledCompetitorIds: [],
       configuredCompetitors: [],
       newCompetitor: { name: '', website: '', sitemap: '' }
     }
@@ -393,7 +406,9 @@ export default {
         ...Object.keys(this.data.competitors || {}),
         ...saved.map(item => item.id)
       ])
-      return Array.from(ids).map(id => {
+      return Array.from(ids)
+        .filter(id => !this.disabledCompetitorIds.includes(id))
+        .map(id => {
         const entry = this.data.competitors[id] || {}
         const configured = savedMap[id] || {}
         const known = names[id] || {}
@@ -434,6 +449,42 @@ export default {
   },
 
   methods: {
+    async deleteCompetitor(competitor) {
+      if (this.removingCompetitorId) return
+      const confirmed = window.confirm(
+        'Delete ' + competitor.name + ' from monitoring?\n\n' +
+        'It will disappear from the dashboard and future scans will stop. ' +
+        'Existing SEO history will be preserved.'
+      )
+      if (!confirmed) return
+      this.deleteCompetitorError = ''
+      this.addCompetitorSuccess = ''
+      this.removingCompetitorId = competitor.id
+      try {
+        if (!import.meta.env.DEV && !import.meta.env.VITE_COMPETITOR_SAVE_API) {
+          throw new Error('Deleting competitors online requires a secure admin API. Test locally for now.')
+        }
+        const endpoint = import.meta.env.VITE_COMPETITOR_SAVE_API || '/api/local-competitors'
+        const response = await fetch(endpoint, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ id: competitor.id })
+        })
+        const body = await response.json().catch(() => {
+          throw new Error('The competitor API did not return valid JSON.')
+        })
+        if (!response.ok) throw new Error(body.error || 'Unable to remove competitor.')
+        if (this.expandedCompetitor === competitor.id) this.expandedCompetitor = null
+        await this.loadData()
+        this.addCompetitorSuccess = body.message || 'Competitor removed from monitoring.'
+      } catch (error) {
+        this.deleteCompetitorError = error.message || 'Unable to remove competitor.'
+      } finally {
+        this.removingCompetitorId = null
+      }
+    },
+
     async requestCompetitor() {
       if (this.savingCompetitor) return
       this.addCompetitorError = ''
@@ -496,6 +547,18 @@ export default {
           }
         } catch {
           // A missing optional configuration file must not break the dashboard.
+        }
+        try {
+          const disabledResponse = await fetch(
+            `${import.meta.env.BASE_URL}data/disabled-competitors.json?t=${Date.now()}`,
+            { cache: 'no-store' }
+          )
+          if (disabledResponse.ok) {
+            const ids = await disabledResponse.json()
+            this.disabledCompetitorIds = Array.isArray(ids) ? ids : []
+          }
+        } catch {
+          // An unavailable optional disabled list should not break read-only data.
         }
       } catch (error) {
         this.error = error.message
@@ -773,6 +836,21 @@ export default {
 .add-competitor-form label { display: flex; flex: 1 1 190px; min-width: 0; flex-direction: column; gap: 7px; color: #64748b; font-size: 12px; font-weight: 650; }
 .add-competitor-form input { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #dce4f0; border-radius: 9px; background: #fff; color: #172033; }
 .add-competitor-panel .add-competitor-error { color: #c2410c; }
+.add-competitor-error-global { padding: 12px 16px; border: 1px solid #fecaca; border-radius: 9px; background: #fff1f2; color: #b91c1c; font-size: 13px; }
+.competitor-delete-button {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 1px solid #f3c6c6;
+  border-radius: 8px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.competitor-delete-button:hover { background: #fff1f2; border-color: #ef4444; }
+.competitor-delete-button:disabled { opacity: 0.65; cursor: not-allowed; }
+
 .add-competitor-success { padding: 12px 16px; border-radius: 9px; background: #ecfdf5; border: 1px solid #bbf7d0; color: #166534; font-size: 13px; }
 .add-competitor-button:disabled { opacity: .65; cursor: not-allowed; }
 .monitor-page {
