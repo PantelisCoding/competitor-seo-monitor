@@ -13,6 +13,7 @@
 
         <div class="header-actions">
           <button
+            v-if="canManageCompetitors"
             type="button"
             class="add-competitor-button"
             :aria-expanded="showAddCompetitor"
@@ -21,16 +22,23 @@
           >
             {{ showAddCompetitor ? 'Close form' : '+ Add Competitor' }}
           </button>
+          <a v-if="!isLocalDevelopment && !adminAuthenticated" class="add-competitor-button" href="/api/auth/login">
+            Sign in with GitHub
+          </a>
+          <button v-if="!isLocalDevelopment && adminAuthenticated" type="button" class="refresh-button" @click="logoutAdmin">
+            Sign out
+          </button>
           <button type="button" class="refresh-button" :disabled="loading" @click="loadData">
             <span :class="{ spinning: loading }">↻</span>
             {{ loading ? 'Refreshing...' : 'Refresh data' }}
           </button>
         </div>
       </header>
-      <section v-if="showAddCompetitor" id="add-competitor-panel" class="add-competitor-panel">
+      <p v-if="authError" class="add-competitor-error-global" role="alert">{{ authError }}</p>
+      <section v-if="showAddCompetitor && canManageCompetitors" id="add-competitor-panel" class="add-competitor-panel">
         <div>
           <strong>Add a competitor</strong>
-          <p>Enter the website you want to monitor. Save it directly on localhost. The scanner will discover its SEO pages on the next run.</p>
+          <p>Add a competitor directly. On localhost changes save to local JSON; on a live site an authorized administrator saves to GitHub and requests a scan.</p>
         </div>
         <form class="add-competitor-form" @submit.prevent="requestCompetitor">
           <label for="new-competitor-name">Competitor name
@@ -45,7 +53,7 @@
           <button class="add-competitor-button" type="submit" :disabled="savingCompetitor">{{ savingCompetitor ? 'Saving...' : 'Save Competitor' }}</button>
         </form>
         <p v-if="addCompetitorError" class="add-competitor-error" role="alert">{{ addCompetitorError }}</p>
-        <small>Local testing: the competitor is saved to extra-competitors.json and appears as pending until scanned. Online deployment requires a secured save API.</small>
+        <small>New competitors appear as pending until their first successful scan. Existing SEO history is retained when a competitor is removed.</small>
       </section>
 
       <p v-if="addCompetitorSuccess" class="add-competitor-success" role="status">{{ addCompetitorSuccess }}</p>
@@ -182,6 +190,7 @@
                 :aria-label="'Visit ' + competitor.domain"
               >&#8599;</a>
               <button
+                v-if="canManageCompetitors"
                 type="button"
                 class="competitor-delete-button"
                 :disabled="removingCompetitorId === competitor.id"
@@ -380,6 +389,9 @@ export default {
       savingCompetitor: false,
       removingCompetitorId: null,
       deleteCompetitorError: '',
+      adminAuthenticated: false,
+      adminLogin: '',
+      authError: '',
       disabledCompetitorIds: [],
       configuredCompetitors: [],
       newCompetitor: { name: '', website: '', sitemap: '' }
@@ -387,6 +399,12 @@ export default {
   },
 
   computed: {
+    isLocalDevelopment() {
+      return import.meta.env.DEV
+    },
+    canManageCompetitors() {
+      return this.isLocalDevelopment || this.adminAuthenticated
+    },
     competitors() {
       const names = {
         aiapply: { name: 'AIApply', domain: 'aiapply.co', initial: 'A' },
@@ -446,9 +464,39 @@ export default {
 
   mounted() {
     this.loadData()
+    if (!this.isLocalDevelopment) this.loadAdminSession()
   },
 
   methods: {
+    async loadAdminSession() {
+      try {
+        const response = await fetch('/api/auth/session', {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        })
+        const status = await response.json()
+        if (!response.ok) throw new Error(status.error || 'Admin login is unavailable.')
+        this.adminAuthenticated = status.authenticated === true
+        this.adminLogin = status.login || ''
+      } catch (error) {
+        this.adminAuthenticated = false
+        this.authError = error.message || 'Could not check admin login.'
+      }
+    },
+    async logoutAdmin() {
+      try {
+        const response = await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'same-origin'
+        })
+        if (!response.ok) throw new Error('Could not sign out.')
+        this.adminAuthenticated = false
+        this.adminLogin = ''
+        this.showAddCompetitor = false
+      } catch (error) {
+        this.authError = error.message || 'Could not sign out.'
+      }
+    },
     async deleteCompetitor(competitor) {
       if (this.removingCompetitorId) return
       const confirmed = window.confirm(
@@ -461,10 +509,8 @@ export default {
       this.addCompetitorSuccess = ''
       this.removingCompetitorId = competitor.id
       try {
-        if (!import.meta.env.DEV && !import.meta.env.VITE_COMPETITOR_SAVE_API) {
-          throw new Error('Deleting competitors online requires a secure admin API. Test locally for now.')
-        }
-        const endpoint = import.meta.env.VITE_COMPETITOR_SAVE_API || '/api/local-competitors'
+        if (!this.canManageCompetitors) throw new Error('Please sign in as an authorized administrator.')
+        const endpoint = this.isLocalDevelopment ? '/api/local-competitors' : '/api/competitors'
         const response = await fetch(endpoint, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
@@ -491,10 +537,8 @@ export default {
       this.addCompetitorSuccess = ''
       this.savingCompetitor = true
       try {
-        if (!import.meta.env.DEV && !import.meta.env.VITE_COMPETITOR_SAVE_API) {
-          throw new Error('Direct saving online requires a secure admin API. Test locally for now.')
-        }
-        const endpoint = import.meta.env.VITE_COMPETITOR_SAVE_API || '/api/local-competitors'
+        if (!this.canManageCompetitors) throw new Error('Please sign in as an authorized administrator.')
+        const endpoint = this.isLocalDevelopment ? '/api/local-competitors' : '/api/competitors'
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -559,6 +603,23 @@ export default {
           }
         } catch {
           // An unavailable optional disabled list should not break read-only data.
+        }
+        // The live admin API reads GitHub directly, so a saved change becomes
+        // visible immediately, even before the next static site deployment.
+        if (!this.isLocalDevelopment) {
+          try {
+            const liveResponse = await fetch('/api/competitors', {
+              credentials: 'same-origin',
+              cache: 'no-store'
+            })
+            if (liveResponse.ok) {
+              const live = await liveResponse.json()
+              this.configuredCompetitors = Array.isArray(live.competitors) ? live.competitors : []
+              this.disabledCompetitorIds = Array.isArray(live.disabledIds) ? live.disabledIds : []
+            }
+          } catch {
+            // Static data remains readable when the admin API is unavailable.
+          }
         }
       } catch (error) {
         this.error = error.message
