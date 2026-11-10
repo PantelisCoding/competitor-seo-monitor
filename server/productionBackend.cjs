@@ -241,7 +241,13 @@ async function handleCompetitors(req, env = process.env, fetcher = fetch) {
       return [...latest, candidate]
     }, config, fetcher)
     const scanRequested = await dispatchScan(config, fetcher)
-    return json(201, { competitor: candidate, scanRequested, message: 'Competitor saved to GitHub. Scanning has been requested.' })
+    return json(201, {
+      competitor: candidate,
+      scanRequested,
+      message: scanRequested
+        ? 'Competitor saved to GitHub. A scan has been requested.'
+        : 'Competitor saved to GitHub. It will be scanned on the next scheduled run.'
+    })
   } catch (error) {
     // Avoid returning credentials, upstream bodies or other internal errors to clients.
     if (error.message.startsWith('Missing server setting') || error.message.includes('SESSION_SECRET')) {
