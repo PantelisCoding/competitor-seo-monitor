@@ -1,4 +1,4 @@
-
+﻿
 name: Competitor SEO Monitoring
 
 on:
@@ -34,6 +34,11 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Preserve previous monitoring snapshot
+
+        shell: bash
+
+        run: cp static/data/competitor-monitor.json "$RUNNER_TEMP/competitor-monitor-before.json"
       - name: Run competitor scanner
         run: node scripts/monitorCompetitors.js
 
@@ -53,4 +58,14 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No competitor changes detected."
           fi
+
+      - name: Email competitor changes with AgentMail
+
+        env:
+
+          AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
+
+          MONITOR_BEFORE_PATH: ${{ runner.temp }}/competitor-monitor-before.json
+
+        run: node scripts/sendEmailReport.js
 
