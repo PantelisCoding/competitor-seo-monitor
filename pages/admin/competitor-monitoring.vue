@@ -30,7 +30,7 @@
       <section v-if="showAddCompetitor" id="add-competitor-panel" class="add-competitor-panel">
         <div>
           <strong>Add a competitor</strong>
-          <p>Enter the website you want to monitor. The request will open in GitHub for approval and automated setup.</p>
+          <p>Enter the website you want to monitor. Save it directly on localhost. The scanner will discover its SEO pages on the next run.</p>
         </div>
         <form class="add-competitor-form" @submit.prevent="requestCompetitor">
           <label for="new-competitor-name">Competitor name
@@ -42,11 +42,13 @@
           <label for="new-competitor-sitemap">Sitemap URL (optional)
             <input id="new-competitor-sitemap" v-model.trim="newCompetitor.sitemap" type="url" placeholder="https://www.rezi.ai/sitemap.xml">
           </label>
-          <button class="add-competitor-button" type="submit">Create GitHub request</button>
+          <button class="add-competitor-button" type="submit" :disabled="savingCompetitor">{{ savingCompetitor ? 'Saving...' : 'Save Competitor' }}</button>
         </form>
         <p v-if="addCompetitorError" class="add-competitor-error" role="alert">{{ addCompetitorError }}</p>
-        <small>Only repository contributors with write access can approve additions. The competitor appears after its first successful scan.</small>
+        <small>Local testing: the competitor is saved to extra-competitors.json and appears as pending until scanned. Online deployment requires a secured save API.</small>
       </section>
+
+      <p v-if="addCompetitorSuccess" class="add-competitor-success" role="status">{{ addCompetitorSuccess }}</p>
 
       <div v-if="loading" class="state-card">
         <div class="loader"></div>
@@ -364,6 +366,9 @@ export default {
       expandedCompetitor: null,
       showAddCompetitor: false,
       addCompetitorError: '',
+      addCompetitorSuccess: '',
+      savingCompetitor: false,
+      configuredCompetitors: [],
       newCompetitor: { name: '', website: '', sitemap: '' }
     }
   },
@@ -382,16 +387,22 @@ export default {
         jobcopilot: { name: 'JobCopilot', domain: 'jobcopilot.com', initial: 'J' }
       }
 
-      return Object.keys(this.data.competitors || {}).map(id => {
+      const saved = this.configuredCompetitors || []
+      const savedMap = Object.fromEntries(saved.map(item => [item.id, item]))
+      const ids = new Set([
+        ...Object.keys(this.data.competitors || {}),
+        ...saved.map(item => item.id)
+      ])
+      return Array.from(ids).map(id => {
         const entry = this.data.competitors[id] || {}
+        const configured = savedMap[id] || {}
         const known = names[id] || {}
-
+        const name = entry.name || configured.name || known.name || id
         return {
           id,
-          ...known,
-          name: entry.name || known.name || id,
-          domain: entry.domain || known.domain || id,
-          initial: known.initial || id.charAt(0).toUpperCase()
+          name,
+          domain: entry.domain || configured.domain || known.domain || id,
+          initial: known.initial || name.charAt(0).toUpperCase()
         }
       })
     },
@@ -423,45 +434,36 @@ export default {
   },
 
   methods: {
-    requestCompetitor() {
+    async requestCompetitor() {
+      if (this.savingCompetitor) return
       this.addCompetitorError = ''
-      const name = this.newCompetitor.name.trim()
-      const website = this.newCompetitor.website.trim()
-      const sitemap = this.newCompetitor.sitemap.trim()
-      if (!name || !website) {
-        this.addCompetitorError = 'Name and website are required.'
-        return
-      }
+      this.addCompetitorSuccess = ''
+      this.savingCompetitor = true
       try {
-        const site = new URL(website)
-        if (site.protocol !== 'https:' || site.username || site.password || !site.hostname.includes('.')) {
-          throw new Error('Website must be a valid HTTPS URL.')
+        if (!import.meta.env.DEV && !import.meta.env.VITE_COMPETITOR_SAVE_API) {
+          throw new Error('Direct saving online requires a secure admin API. Test locally for now.')
         }
-        const domain = site.hostname.toLowerCase().replace(/^www\./, '')
-        if (this.competitors.some(item => item.domain.toLowerCase().replace(/^www\./, '') === domain)) {
-          throw new Error('This competitor is already being monitored.')
-        }
-        if (sitemap) {
-          const sitemapUrl = new URL(sitemap)
-          const sitemapHost = sitemapUrl.hostname.toLowerCase().replace(/^www\./, '')
-          if (sitemapUrl.protocol !== 'https:' || (sitemapHost !== domain && !sitemapHost.endsWith('.' + domain))) {
-            throw new Error('Sitemap must use HTTPS and belong to the competitor domain.')
-          }
-        }
+        const endpoint = import.meta.env.VITE_COMPETITOR_SAVE_API || '/api/local-competitors'
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(this.newCompetitor)
+        })
+        const body = await response.json().catch(() => {
+          throw new Error('The competitor save API did not return JSON. Check that the local Vite server is running.')
+        })
+        if (!response.ok) throw new Error(body.error || 'Could not save competitor.')
+        this.newCompetitor = { name: '', website: '', sitemap: '' }
+        this.showAddCompetitor = false
+        this.addCompetitorSuccess = body.message || 'Competitor saved successfully.'
+        await this.loadData()
       } catch (error) {
-        this.addCompetitorError = error.message || 'Please enter valid URLs.'
-        return
+        this.addCompetitorError = error.message || 'Could not save competitor.'
+        this.showAddCompetitor = true
+      } finally {
+        this.savingCompetitor = false
       }
-      const issueTitle = '[Add Competitor] ' + name
-      const issueBody = [
-        'Competitor name: ' + name,
-        'Website URL: ' + website,
-        'Sitemap URL: ' + (sitemap || 'auto')
-      ].join('\n')
-      const repo = import.meta.env.VITE_MONITOR_REPOSITORY || 'Loopcv/monitor-competitors-sitemap'
-      const issueUrl = 'https://github.com/' + repo + '/issues/new?title=' +
-        encodeURIComponent(issueTitle) + '&body=' + encodeURIComponent(issueBody)
-      window.open(issueUrl, '_blank', 'noopener,noreferrer')
     },
     async loadData() {
       this.loading = true
@@ -482,6 +484,18 @@ export default {
           lastChecked: result.lastChecked || null,
           competitors: result.competitors || {},
           history: Array.isArray(result.history) ? result.history : []
+        }
+        try {
+          const configuredResponse = await fetch(
+            `${import.meta.env.BASE_URL}data/extra-competitors.json?t=${Date.now()}`,
+            { cache: 'no-store' }
+          )
+          if (configuredResponse.ok) {
+            const configured = await configuredResponse.json()
+            this.configuredCompetitors = Array.isArray(configured) ? configured : []
+          }
+        } catch {
+          // A missing optional configuration file must not break the dashboard.
         }
       } catch (error) {
         this.error = error.message
@@ -759,6 +773,8 @@ export default {
 .add-competitor-form label { display: flex; flex: 1 1 190px; min-width: 0; flex-direction: column; gap: 7px; color: #64748b; font-size: 12px; font-weight: 650; }
 .add-competitor-form input { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #dce4f0; border-radius: 9px; background: #fff; color: #172033; }
 .add-competitor-panel .add-competitor-error { color: #c2410c; }
+.add-competitor-success { padding: 12px 16px; border-radius: 9px; background: #ecfdf5; border: 1px solid #bbf7d0; color: #166534; font-size: 13px; }
+.add-competitor-button:disabled { opacity: .65; cursor: not-allowed; }
 .monitor-page {
   min-height: 100vh;
   padding: 48px 28px 70px;
