@@ -61,9 +61,9 @@ function assertUnique(candidate, existing) {
   }
 }
 
-function readExtraCompetitors(existing = []) {
-  if (!fs.existsSync(CONFIG_PATH)) return []
-  const parsed = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
+function readExtraCompetitors(existing = [], configPath = CONFIG_PATH) {
+  if (!fs.existsSync(configPath)) return []
+  const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'))
   if (!Array.isArray(parsed)) throw new Error('extra-competitors.json must be an array')
   const extras = []
   for (const entry of parsed) {
