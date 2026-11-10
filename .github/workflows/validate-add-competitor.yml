@@ -17,3 +17,8 @@ jobs:
       - run: npm ci
       - run: node --test tests/*.test.cjs
       - run: npm run build
+      - run: NETLIFY=true npm run build
+      - name: Verify Netlify function entrypoints and routes
+        run: |
+          node --input-type=module -e "import('./netlify/functions/auth.mjs').then(m => { if (!m.config.path.includes('/api/auth/login')) process.exit(1) })"
+          node --input-type=module -e "import('./netlify/functions/competitors.mjs').then(m => { if (m.config.path !== '/api/competitors') process.exit(1) })"
