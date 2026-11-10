@@ -3,6 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const { XMLParser } = require('fast-xml-parser')
 const { chromium } = require('playwright')
+const { readExtraCompetitors } = require('./competitorConfig.cjs')
 
 const DATA_PATH = path.join(__dirname, '../static/data/competitor-monitor.json')
 const CONCURRENCY = 5
@@ -75,6 +76,9 @@ const COMPETITORS = [
     baseUrl: 'https://jobcopilot.com'
   }
 ]
+
+const ADDITIONAL_COMPETITORS = readExtraCompetitors(COMPETITORS)
+COMPETITORS.push(...ADDITIONAL_COMPETITORS)
 
 const parser = new XMLParser({
   ignoreAttributes: true,
@@ -625,6 +629,21 @@ function saveDatabase(database) {
 async function main() {
   const database = loadDatabase()
 
+  // Newly approved competitors appear in the dashboard even if their first scan fails.
+  for (const competitor of ADDITIONAL_COMPETITORS) {
+    if (!database.competitors[competitor.id]) {
+      database.competitors[competitor.id] = {
+        name: competitor.name,
+        domain: competitor.domain,
+        initialized: false,
+        lastChecked: null,
+        urls: {},
+        newSeoPages: 0,
+        sitemapErrors: []
+      }
+    }
+  }
+
   database.history = database.history.filter(
     item => item.category !== 'jobListings'
   )
@@ -641,6 +660,9 @@ async function main() {
       await monitorCompetitor(competitor, database)
     } catch (error) {
       console.error(`${competitor.name}: ${error.message}`)
+      if (ADDITIONAL_COMPETITORS.some(item => item.id === competitor.id)) {
+        database.competitors[competitor.id].sitemapErrors = [error.message]
+      }
     }
   }
 
