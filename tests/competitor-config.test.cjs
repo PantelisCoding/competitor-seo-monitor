@@ -1,7 +1,10 @@
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { normalizeCompetitor, assertUnique, readExtraCompetitors } = require('../scripts/competitorConfig.cjs')
+const { normalizeCompetitor, assertUnique, readExtraCompetitors, readDisabledCompetitors } = require('../scripts/competitorConfig.cjs')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 
 test('normalizes a manually added competitor', () => {
   assert.deepEqual(
@@ -42,4 +45,18 @@ test('rejects duplicate and invalid names', () => {
 })
 test('loads default extra-competitor config without overriding built-ins', () => {
   assert.deepEqual(readExtraCompetitors([{ id: 'aiapply', domain: 'aiapply.co' }]), [])
+})
+
+
+test('reads valid deleted competitor IDs and rejects malformed configuration', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'disabled-config-test-'))
+  try {
+    const file = path.join(dir, 'disabled-competitors.json')
+    fs.writeFileSync(file, JSON.stringify(['aiapply', 'rezi-ai', 'rezi-ai']))
+    assert.deepEqual(readDisabledCompetitors(file), ['aiapply', 'rezi-ai'])
+    fs.writeFileSync(file, JSON.stringify(['../unsafe']))
+    assert.throws(() => readDisabledCompetitors(file))
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
