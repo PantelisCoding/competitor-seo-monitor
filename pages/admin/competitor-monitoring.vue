@@ -11,11 +11,53 @@
           <p>Track competitor SEO activity, discover new pages and monitor content changes.</p>
         </div>
 
-        <button class="refresh-button" :disabled="loading" @click="loadData">
-          <span :class="{ spinning: loading }">↻</span>
-          {{ loading ? 'Refreshing...' : 'Refresh data' }}
-        </button>
+        <div class="header-actions">
+          <button
+            v-if="canManageCompetitors"
+            type="button"
+            class="add-competitor-button"
+            :aria-expanded="showAddCompetitor"
+            aria-controls="add-competitor-panel"
+            @click="showAddCompetitor = !showAddCompetitor"
+          >
+            {{ showAddCompetitor ? 'Close form' : '+ Add Competitor' }}
+          </button>
+          <a v-if="!isLocalDevelopment && !adminAuthenticated" class="add-competitor-button" href="/api/auth/login">
+            Sign in with GitHub
+          </a>
+          <button v-if="!isLocalDevelopment && adminAuthenticated" type="button" class="refresh-button" @click="logoutAdmin">
+            Sign out
+          </button>
+          <button type="button" class="refresh-button" :disabled="loading" @click="loadData">
+            <span :class="{ spinning: loading }">↻</span>
+            {{ loading ? 'Refreshing...' : 'Refresh data' }}
+          </button>
+        </div>
       </header>
+      <p v-if="authError" class="add-competitor-error-global" role="alert">{{ authError }}</p>
+      <section v-if="showAddCompetitor && canManageCompetitors" id="add-competitor-panel" class="add-competitor-panel">
+        <div>
+          <strong>Add a competitor</strong>
+          <p>Add a competitor directly. On localhost changes save to local JSON; on a live site an authorized administrator saves to GitHub and requests a scan.</p>
+        </div>
+        <form class="add-competitor-form" @submit.prevent="requestCompetitor">
+          <label for="new-competitor-name">Competitor name
+            <input id="new-competitor-name" v-model.trim="newCompetitor.name" maxlength="80" required placeholder="e.g. Rezi">
+          </label>
+          <label for="new-competitor-website">Website URL
+            <input id="new-competitor-website" v-model.trim="newCompetitor.website" type="url" required placeholder="https://www.rezi.ai">
+          </label>
+          <label for="new-competitor-sitemap">Sitemap URL (optional)
+            <input id="new-competitor-sitemap" v-model.trim="newCompetitor.sitemap" type="url" placeholder="https://www.rezi.ai/sitemap.xml">
+          </label>
+          <button class="add-competitor-button" type="submit" :disabled="savingCompetitor">{{ savingCompetitor ? 'Saving...' : 'Save Competitor' }}</button>
+        </form>
+        <p v-if="addCompetitorError" class="add-competitor-error" role="alert">{{ addCompetitorError }}</p>
+        <small>New competitors appear as pending until their first successful scan. Existing SEO history is retained when a competitor is removed.</small>
+      </section>
+
+      <p v-if="addCompetitorSuccess" class="add-competitor-success" role="status">{{ addCompetitorSuccess }}</p>
+      <p v-if="deleteCompetitorError" class="add-competitor-error-global" role="alert">{{ deleteCompetitorError }}</p>
 
       <div v-if="loading" class="state-card">
         <div class="loader"></div>
@@ -147,6 +189,16 @@
                 rel="noopener noreferrer"
                 :aria-label="'Visit ' + competitor.domain"
               >&#8599;</a>
+              <button
+                v-if="canManageCompetitors"
+                type="button"
+                class="competitor-delete-button"
+                :disabled="removingCompetitorId === competitor.id"
+                :aria-label="'Delete ' + competitor.name + ' from monitoring'"
+                @click.stop="deleteCompetitor(competitor)"
+              >
+                {{ removingCompetitorId === competitor.id ? 'Removing...' : 'Delete' }}
+              </button>
             </div>
 
             <div v-if="isExpanded(competitor.id)" class="competitor-details">
@@ -326,15 +378,34 @@ export default {
       error: '',
       data: {
         lastChecked: null,
+        scanId: null,
         competitors: {},
         history: []
       },
       activeTabs: {},
-      expandedCompetitor: null
+      expandedCompetitor: null,
+      showAddCompetitor: false,
+      addCompetitorError: '',
+      addCompetitorSuccess: '',
+      savingCompetitor: false,
+      removingCompetitorId: null,
+      deleteCompetitorError: '',
+      adminAuthenticated: false,
+      adminLogin: '',
+      authError: '',
+      disabledCompetitorIds: [],
+      configuredCompetitors: [],
+      newCompetitor: { name: '', website: '', sitemap: '' }
     }
   },
 
   computed: {
+    isLocalDevelopment() {
+      return import.meta.env.DEV
+    },
+    canManageCompetitors() {
+      return this.isLocalDevelopment || this.adminAuthenticated
+    },
     competitors() {
       const names = {
         aiapply: { name: 'AIApply', domain: 'aiapply.co', initial: 'A' },
@@ -348,16 +419,24 @@ export default {
         jobcopilot: { name: 'JobCopilot', domain: 'jobcopilot.com', initial: 'J' }
       }
 
-      return Object.keys(this.data.competitors || {}).map(id => {
+      const saved = this.configuredCompetitors || []
+      const savedMap = Object.fromEntries(saved.map(item => [item.id, item]))
+      const ids = new Set([
+        ...Object.keys(this.data.competitors || {}),
+        ...saved.map(item => item.id)
+      ])
+      return Array.from(ids)
+        .filter(id => !this.disabledCompetitorIds.includes(id))
+        .map(id => {
         const entry = this.data.competitors[id] || {}
+        const configured = savedMap[id] || {}
         const known = names[id] || {}
-
+        const name = entry.name || configured.name || known.name || id
         return {
           id,
-          ...known,
-          name: entry.name || known.name || id,
-          domain: entry.domain || known.domain || id,
-          initial: known.initial || id.charAt(0).toUpperCase()
+          name,
+          domain: entry.domain || configured.domain || known.domain || id,
+          initial: known.initial || name.charAt(0).toUpperCase()
         }
       })
     },
@@ -386,9 +465,102 @@ export default {
 
   mounted() {
     this.loadData()
+    if (!this.isLocalDevelopment) this.loadAdminSession()
   },
 
   methods: {
+    async loadAdminSession() {
+      try {
+        const response = await fetch('/api/auth/session', {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        })
+        const status = await response.json()
+        if (!response.ok) throw new Error(status.error || 'Admin login is unavailable.')
+        this.adminAuthenticated = status.authenticated === true
+        this.adminLogin = status.login || ''
+      } catch (error) {
+        this.adminAuthenticated = false
+        this.authError = error.message || 'Could not check admin login.'
+      }
+    },
+    async logoutAdmin() {
+      try {
+        const response = await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'same-origin'
+        })
+        if (!response.ok) throw new Error('Could not sign out.')
+        this.adminAuthenticated = false
+        this.adminLogin = ''
+        this.showAddCompetitor = false
+      } catch (error) {
+        this.authError = error.message || 'Could not sign out.'
+      }
+    },
+    async deleteCompetitor(competitor) {
+      if (this.removingCompetitorId) return
+      const confirmed = window.confirm(
+        'Delete ' + competitor.name + ' from monitoring?\n\n' +
+        'It will disappear from the dashboard and future scans will stop. ' +
+        'Existing SEO history will be preserved.'
+      )
+      if (!confirmed) return
+      this.deleteCompetitorError = ''
+      this.addCompetitorSuccess = ''
+      this.removingCompetitorId = competitor.id
+      try {
+        if (!this.canManageCompetitors) throw new Error('Please sign in as an authorized administrator.')
+        const endpoint = this.isLocalDevelopment ? '/api/local-competitors' : '/api/competitors'
+        const response = await fetch(endpoint, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ id: competitor.id })
+        })
+        const body = await response.json().catch(() => {
+          throw new Error('The competitor API did not return valid JSON.')
+        })
+        if (!response.ok) throw new Error(body.error || 'Unable to remove competitor.')
+        if (this.expandedCompetitor === competitor.id) this.expandedCompetitor = null
+        await this.loadData()
+        this.addCompetitorSuccess = body.message || 'Competitor removed from monitoring.'
+      } catch (error) {
+        this.deleteCompetitorError = error.message || 'Unable to remove competitor.'
+      } finally {
+        this.removingCompetitorId = null
+      }
+    },
+
+    async requestCompetitor() {
+      if (this.savingCompetitor) return
+      this.addCompetitorError = ''
+      this.addCompetitorSuccess = ''
+      this.savingCompetitor = true
+      try {
+        if (!this.canManageCompetitors) throw new Error('Please sign in as an authorized administrator.')
+        const endpoint = this.isLocalDevelopment ? '/api/local-competitors' : '/api/competitors'
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(this.newCompetitor)
+        })
+        const body = await response.json().catch(() => {
+          throw new Error('The competitor save API did not return JSON. Check that the local Vite server is running.')
+        })
+        if (!response.ok) throw new Error(body.error || 'Could not save competitor.')
+        this.newCompetitor = { name: '', website: '', sitemap: '' }
+        this.showAddCompetitor = false
+        this.addCompetitorSuccess = body.message || 'Competitor saved successfully.'
+        await this.loadData()
+      } catch (error) {
+        this.addCompetitorError = error.message || 'Could not save competitor.'
+        this.showAddCompetitor = true
+      } finally {
+        this.savingCompetitor = false
+      }
+    },
     async loadData() {
       this.loading = true
       this.error = ''
@@ -406,8 +578,50 @@ export default {
 
         this.data = {
           lastChecked: result.lastChecked || null,
+          scanId: result.scanId || null,
           competitors: result.competitors || {},
           history: Array.isArray(result.history) ? result.history : []
+        }
+        try {
+          const configuredResponse = await fetch(
+            `${import.meta.env.BASE_URL}data/extra-competitors.json?t=${Date.now()}`,
+            { cache: 'no-store' }
+          )
+          if (configuredResponse.ok) {
+            const configured = await configuredResponse.json()
+            this.configuredCompetitors = Array.isArray(configured) ? configured : []
+          }
+        } catch {
+          // A missing optional configuration file must not break the dashboard.
+        }
+        try {
+          const disabledResponse = await fetch(
+            `${import.meta.env.BASE_URL}data/disabled-competitors.json?t=${Date.now()}`,
+            { cache: 'no-store' }
+          )
+          if (disabledResponse.ok) {
+            const ids = await disabledResponse.json()
+            this.disabledCompetitorIds = Array.isArray(ids) ? ids : []
+          }
+        } catch {
+          // An unavailable optional disabled list should not break read-only data.
+        }
+        // The live admin API reads GitHub directly, so a saved change becomes
+        // visible immediately, even before the next static site deployment.
+        if (!this.isLocalDevelopment) {
+          try {
+            const liveResponse = await fetch('/api/competitors', {
+              credentials: 'same-origin',
+              cache: 'no-store'
+            })
+            if (liveResponse.ok) {
+              const live = await liveResponse.json()
+              this.configuredCompetitors = Array.isArray(live.competitors) ? live.competitors : []
+              this.disabledCompetitorIds = Array.isArray(live.disabledIds) ? live.disabledIds : []
+            }
+          } catch {
+            // Static data remains readable when the admin API is unavailable.
+          }
         }
       } catch (error) {
         this.error = error.message
@@ -465,6 +679,8 @@ export default {
     getNewUrls(competitorId) {
       return (this.data.history || [])
         .filter(item =>
+          Boolean(this.data.scanId) &&
+          item.scanId === this.data.scanId &&
           item.competitorId === competitorId &&
           item.category === 'seoPages' &&
           item.status === 'new'
@@ -581,7 +797,7 @@ export default {
       const tab = this.getTab(competitorId)
 
       if (tab === 'new') {
-        return 'No new SEO pages have been recorded in the monitoring history.'
+        return 'No new SEO pages were discovered in the latest scan. Run the updated scanner to refresh this view.'
       }
 
       if (tab === 'removed') {
@@ -603,16 +819,13 @@ export default {
       return competitor.monitoredUrls ?? this.getUrls(competitorId).length
     },
 
-    getTotalNewDiscoveries(competitorId) {
-      return (this.data.history || []).filter(item =>
-        item.competitorId === competitorId &&
-        item.category === 'seoPages' &&
-        item.status === 'new'
-      ).length
-    },
-
     getCompetitorNew(competitorId) {
-      return this.getTotalNewDiscoveries(competitorId)
+      const record = this.data.competitors[competitorId]
+      if (!record) return 0
+      if (this.data.scanId && record.scanId !== this.data.scanId) return 0
+      // The scanner resets this field each run; do not count historical events.
+      const count = Number(record.newSeoPages || 0)
+      return Number.isFinite(count) && count > 0 ? Math.trunc(count) : 0
     },
 
     getSitemapsChecked(competitorId) {
@@ -651,6 +864,57 @@ export default {
 </script>
 
 <style scoped>
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.add-competitor-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  border: 1px solid #2563eb;
+  border-radius: 9px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.add-competitor-button:hover { background: #1d4ed8; border-color: #1d4ed8; }
+.add-competitor-panel {
+  margin-bottom: 28px;
+  padding: 22px;
+  border: 1px solid #dce4f0;
+  border-radius: 14px;
+  background: #fff;
+}
+.add-competitor-panel strong { color: #172033; font-size: 16px; }
+.add-competitor-panel p, .add-competitor-panel small { color: #64748b; font-size: 12px; line-height: 1.5; }
+.add-competitor-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 16px 0 10px; }
+.add-competitor-form label { display: flex; flex: 1 1 190px; min-width: 0; flex-direction: column; gap: 7px; color: #64748b; font-size: 12px; font-weight: 650; }
+.add-competitor-form input { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #dce4f0; border-radius: 9px; background: #fff; color: #172033; }
+.add-competitor-panel .add-competitor-error { color: #c2410c; }
+.add-competitor-error-global { padding: 12px 16px; border: 1px solid #fecaca; border-radius: 9px; background: #fff1f2; color: #b91c1c; font-size: 13px; }
+.competitor-delete-button {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 1px solid #f3c6c6;
+  border-radius: 8px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.competitor-delete-button:hover { background: #fff1f2; border-color: #ef4444; }
+.competitor-delete-button:disabled { opacity: 0.65; cursor: not-allowed; }
+
+.add-competitor-success { padding: 12px 16px; border-radius: 9px; background: #ecfdf5; border: 1px solid #bbf7d0; color: #166534; font-size: 13px; }
+.add-competitor-button:disabled { opacity: .65; cursor: not-allowed; }
 .monitor-page {
   min-height: 100vh;
   padding: 48px 28px 70px;
