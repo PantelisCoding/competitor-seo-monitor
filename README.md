@@ -1,16 +1,28 @@
-Adds a competitor SEO monitoring system for AIApply and Teal.
+## Competitor SEO Monitor
 
-Added automated sitemap scanning for SEO pages.
-Detects newly discovered and removed URLs.
-Added Playwright support for Teal sitemap access.
-Added GitHub Actions workflow for scheduled hourly scans.
-Stores monitoring results in static/data/competitor-monitor.json.
-Testing
+A competitor SEO monitoring platform designed to automatically track competitor websites, analyze sitemap changes, and identify newly discovered SEO pages.
 
-Verified sitemap scanning for both competitors.
-Tested new and removed URL detection.
-Confirmed dashboard displays removed pages correctly.
-Verified monitoring data is retained after scanning.
-admin/competitor-monitoring
+The project combines an interactive administration dashboard, automated monitoring, and daily email reporting to help LoopCV track competitor activity and identify SEO opportunities.
 
-The dashboard will be accessible there once the changes are merged and deployed.
+### Key Features
+
+- **Automated Competitor Monitoring:** Scans competitor sitemaps and tracks newly discovered SEO pages.
+- **Admin Dashboard:** Displays competitor data, monitoring results, and historical activity.
+- **Competitor Management:** Allows authorized administrators to add, remove, disable, and restore competitors.
+- **Daily Email Reports:** Generates automated SEO monitoring reports at 11:00 AM Greece time using GitHub Actions and AgentMail.
+- **SEO Change Tracking:** Identifies new pages and distinguishes recent discoveries from historical results.
+- **Authentication & Security:** Includes GitHub OAuth authentication and protected administration endpoints.
+- **Deployment Support:** Includes configurations for Netlify, GitHub Actions, and production backend functionality.
+
+### Technology Stack
+
+Vue.js 2, Vite, Node.js, GitHub Actions, GitHub OAuth, Netlify, and AgentMail.
+
+### Testing & Compatibility
+
+- 23 automated tests passing.
+- Production build completed successfully.
+- Existing LoopCV monitoring data preserved.
+- Prepared for integration with LoopCV's existing repository.
+
+**Deployment note:** Production authentication, environment variables, GitHub permissions, and scheduled email delivery still require verification after deployment.
