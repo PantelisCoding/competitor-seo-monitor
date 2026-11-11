@@ -3,6 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const { XMLParser } = require('fast-xml-parser')
 const { chromium } = require('playwright')
+const { readExtraCompetitors, readDisabledCompetitors } = require('./competitorConfig.cjs')
 
 const DATA_PATH = path.join(__dirname, '../static/data/competitor-monitor.json')
 const CONCURRENCY = 5
@@ -11,70 +12,13 @@ const MAX_SITEMAPS = 500
 const MAX_DEPTH = 5
 const MONITORING_CONFIG_VERSION = 1
 
-const COMPETITORS = [
-  {
-    id: 'aiapply',
-    name: 'AIApply',
-    domain: 'aiapply.co',
-    baseUrl: 'https://aiapply.co'
-  },
-  {
-    id: 'teal',
-    name: 'Teal',
-    domain: 'tealhq.com',
-    baseUrl: 'https://www.tealhq.com',
-    sitemapIndex: 'https://www.tealhq.com/sitemap-index.xml',
-    useBrowser: true
-  },
-  {
-    id: 'lazyapply',
-    name: 'LazyApply',
-    domain: 'lazyapply.com',
-    baseUrl: 'https://lazyapply.com',
-    sampleLimits: {
-      'cover-letter-examples': 500,
-      'interview-answer': 500,
-      'resignation-letter': 250
-    }
-  },
-  {
-    id: 'sonara',
-    name: 'Sonara',
-    domain: 'sonara.ai',
-    baseUrl: 'https://www.sonara.ai',
-    scanEnabled: false
-  },
-  {
-    id: 'applyblast',
-    name: 'ApplyBlast',
-    domain: 'applyblast.com',
-    baseUrl: 'https://applyblast.com'
-  },
-  {
-    id: 'applyhero',
-    name: 'ApplyHero',
-    domain: 'applyhero.ai',
-    baseUrl: 'https://www.applyhero.ai'
-  },
-  {
-    id: 'simplify',
-    name: 'Simplify',
-    domain: 'simplify.jobs',
-    baseUrl: 'https://simplify.jobs'
-  },
-  {
-    id: 'jobscan',
-    name: 'Jobscan',
-    domain: 'jobscan.co',
-    baseUrl: 'https://www.jobscan.co'
-  },
-  {
-    id: 'jobcopilot',
-    name: 'JobCopilot',
-    domain: 'jobcopilot.com',
-    baseUrl: 'https://jobcopilot.com'
-  }
-]
+const BUILTIN_COMPETITORS = require('./builtinCompetitors.cjs')
+const DISABLED_COMPETITOR_IDS = new Set(readDisabledCompetitors())
+const ADDITIONAL_COMPETITORS = readExtraCompetitors(BUILTIN_COMPETITORS)
+  .filter(item => !DISABLED_COMPETITOR_IDS.has(item.id))
+const COMPETITORS = BUILTIN_COMPETITORS
+  .filter(item => !DISABLED_COMPETITOR_IDS.has(item.id))
+  .concat(ADDITIONAL_COMPETITORS)
 
 const parser = new XMLParser({
   ignoreAttributes: true,
@@ -470,7 +414,7 @@ function canConfirmDeletions(errors) {
   return errors.length === 0
 }
 
-async function monitorCompetitor(competitor, database) {
+async function monitorCompetitor(competitor, database, scanId) {
   console.log(`Checking ${competitor.name}...`)
 
   const result = await collectUrls(competitor)
@@ -509,6 +453,7 @@ async function monitorCompetitor(competitor, database) {
           competitorId: competitor.id,
           category: 'seoPages',
           detectedAt: now,
+          scanId,
           status: 'new'
         })
 
@@ -526,39 +471,59 @@ async function monitorCompetitor(competitor, database) {
   }
 
   let removedSeoCount = 0
+  const missingUrls = [...existingUrlSet].filter(url => !result.discoveredUrls.has(url))
+  const previousCount = existingUrlSet.size
+  const currentCount = result.discoveredUrls.size
+  const suspiciousDrop = previousCount >= 100 &&
+    currentCount < previousCount * 0.8
 
-  if (isSamplingMigration) {
-    console.log(
-      `${competitor.name}: sampling configuration applied. Existing URLs outside the sample will not be reported as deleted.`
-    )
-  } else if (canConfirmDeletions(result.errors)) {
-    for (const url of existingUrlSet) {
-      if (
-        !result.discoveredUrls.has(url) &&
-        !isSamplingMigration
-      ) {
-        database.history.unshift({
-          url,
-          competitor: competitor.name,
-          competitorId: competitor.id,
-          category: 'seoPages',
-          detectedAt: now,
-          status: 'removed'
-        })
+  // Sitemap disappearance is not proof that a page was deleted.
+  // Require two complete scans with consistent coverage before confirming removal.
+  const canCheckRemovals = !isSamplingMigration &&
+    canConfirmDeletions(result.errors) && !suspiciousDrop
 
-        removedSeoCount++
+  if (suspiciousDrop) {
+    result.errors.push({
+      sitemap: 'Coverage anomaly',
+      message: `SEO URL coverage dropped from ${previousCount} to ${currentCount}; ${missingUrls.length} potential removals held for review.`
+    })
+    console.warn(`${competitor.name}: unexpected sitemap coverage drop. Deletions suppressed.`)
+  }
+
+  for (const url of missingUrls) {
+    const previous = previousUrls[url]
+    const consecutiveMissing = canCheckRemovals
+      ? (previous.missingScans || 0) + 1
+      : (previous.missingScans || 0)
+
+    if (canCheckRemovals && consecutiveMissing >= 2) {
+      database.history.unshift({
+        url,
+        competitor: competitor.name,
+        competitorId: competitor.id,
+        category: 'seoPages',
+        detectedAt: now,
+        scanId,
+        status: 'removed'
+      })
+      removedSeoCount++
+    } else {
+      urls[url] = {
+        ...previous,
+        missingScans: consecutiveMissing
       }
     }
-  } else {
-    console.log(
-      `Deletion detection skipped for ${competitor.name} because sitemap errors occurred.`
-    )
+  }
+
+  if (!canCheckRemovals && !suspiciousDrop) {
+    console.log(`${competitor.name}: deletion confirmation deferred due to sitemap errors or sampling migration.`)
   }
 
   const competitorData = {
     name: competitor.name,
     domain: competitor.domain,
     lastChecked: now,
+    scanId,
     totalUrls: result.discoveredUrls.size,
     sitemapCount: result.sitemapCount,
     seoPages: result.discoveredUrls.size,
@@ -624,6 +589,22 @@ function saveDatabase(database) {
 
 async function main() {
   const database = loadDatabase()
+  const scanId = new Date().toISOString()
+
+  // Newly approved competitors appear in the dashboard even if their first scan fails.
+  for (const competitor of ADDITIONAL_COMPETITORS) {
+    if (!database.competitors[competitor.id]) {
+      database.competitors[competitor.id] = {
+        name: competitor.name,
+        domain: competitor.domain,
+        initialized: false,
+        lastChecked: null,
+        urls: {},
+        newSeoPages: 0,
+        sitemapErrors: []
+      }
+    }
+  }
 
   database.history = database.history.filter(
     item => item.category !== 'jobListings'
@@ -638,12 +619,22 @@ async function main() {
     }
 
     try {
-      await monitorCompetitor(competitor, database)
+      await monitorCompetitor(competitor, database, scanId)
     } catch (error) {
       console.error(`${competitor.name}: ${error.message}`)
+      const previous = database.competitors[competitor.id] || {}
+      database.competitors[competitor.id] = {
+        ...previous,
+        name: competitor.name,
+        domain: competitor.domain,
+        scanId,
+        newSeoPages: 0,
+        sitemapErrors: [error.message]
+      }
     }
   }
 
+  database.scanId = scanId
   database.lastChecked = new Date().toISOString()
 
   saveDatabase(database)
