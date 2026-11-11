@@ -23,6 +23,5 @@ Vue.js 2, Vite, Node.js, GitHub Actions, GitHub OAuth, Netlify, and AgentMail.
 - 23 automated tests passing.
 - Production build completed successfully.
 - Existing LoopCV monitoring data preserved.
-- Prepared for integration with LoopCV's existing repository.
 
 **Deployment note:** Production authentication, environment variables, GitHub permissions, and scheduled email delivery still require verification after deployment.
