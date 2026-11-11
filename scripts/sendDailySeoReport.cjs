@@ -47,7 +47,7 @@ async function main() {
   }
   const report = buildReport(data)
   if (testMode) report.subject = '[TEST — NOT LIVE DATA] ' + report.subject
-  const to = testMode ? ['pandelisan28@outlook.com'] : recipients
+  const to = (testMode || process.env.REPORT_ONLY_ME === 'true') ? ['pandelisan28@outlook.com'] : recipients
   const response = await fetch('https://api.agentmail.to/v0/inboxes/' + encodeURIComponent(inbox) + '/messages/send',{method:'POST',headers:{Authorization:'Bearer ' + process.env.AGENTMAIL_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({...report,to})})
   if (!response.ok) throw Error('AgentMail HTTP ' + response.status + ': ' + (await response.text()).slice(0,500))
   console.log('AgentMail accepted report for ' + to.length + ' recipient(s)')
