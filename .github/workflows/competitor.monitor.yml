@@ -3,8 +3,14 @@ name: Competitor SEO Monitoring
 
 on:
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "0 8 * * *"
+    - cron: "0 9 * * *"
   workflow_dispatch:
+    inputs:
+      test_email_only:
+        description: "Send test email to Outlook only; skip scanner and commit"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -20,25 +26,41 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Check Greece reporting hour
+        id: athens
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(TZ=Europe/Athens date +%H)" = "11" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.athens.outputs.run == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
+        if: steps.athens.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Install dependencies
+        if: steps.athens.outputs.run == 'true'
         run: npm ci
 
       - name: Install Playwright Chromium
+        if: steps.athens.outputs.run == 'true' && inputs.test_email_only != true
         run: npx playwright install --with-deps chromium
 
       - name: Run competitor scanner
+        if: steps.athens.outputs.run == 'true' && inputs.test_email_only != true
         run: node scripts/monitorCompetitors.js
 
       - name: Commit updated monitoring data
+        if: steps.athens.outputs.run == 'true' && inputs.test_email_only != true
         id: commit_data
         shell: bash
         run: |
@@ -69,10 +91,17 @@ jobs:
             echo "No competitor changes detected."
           fi
 
+      - name: Send AgentMail report
+        if: steps.athens.outputs.run == 'true'
+        env:
+          AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
+          REPORT_TEST_MODE: ${{ inputs.test_email_only == true && 'true' || 'false' }}
+        run: node scripts/sendDailySeoReport.cjs
+
       # Netlify (if selected later) rebuilds automatically on repository pushes.
       # Opt-in GitHub Pages deployment only when that workflow is configured.
       - name: Trigger optional GitHub Pages deployment
-        if: steps.commit_data.outputs.changed == 'true' && vars.DEPLOY_GITHUB_PAGES == 'true'
+        if: steps.commit_data.outputs.changed == 'true' && vars.DEPLOY_GITHUB_PAGES == 'true' && inputs.test_email_only != true
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy.yml --ref main
