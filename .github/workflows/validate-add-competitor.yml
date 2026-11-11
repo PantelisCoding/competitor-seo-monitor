@@ -1,0 +1,24 @@
+name: Validate Add Competitor
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/*.test.cjs
+      - run: npm run build
+      - run: NETLIFY=true npm run build
+      - name: Verify Netlify function entrypoints and routes
+        run: |
+          node --input-type=module -e "import('./netlify/functions/auth.mjs').then(m => { if (!m.config.path.includes('/api/auth/login')) process.exit(1) })"
+          node --input-type=module -e "import('./netlify/functions/competitors.mjs').then(m => { if (m.config.path !== '/api/competitors') process.exit(1) })"
