@@ -1,0 +1,59 @@
+name: Add Approved Competitor
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: competitor-monitoring
+  cancel-in-progress: false
+
+jobs:
+  add-competitor:
+    if: startsWith(github.event.issue.title, '[Add Competitor] ')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify request and update competitor configuration
+        id: request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/addCompetitorFromIssue.cjs
+
+      - name: Commit approved competitor
+        id: commit
+        if: steps.request.outputs.added == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/data/extra-competitors.json
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "Add competitor from approved GitHub request"
+            git pull --rebase origin main
+            git push origin HEAD:main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Confirm GitHub request
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "Competitor added to monitoring configuration. The next daily scheduled scan will process it and update dashboard data."
+          gh issue close "$ISSUE_NUMBER"
+
