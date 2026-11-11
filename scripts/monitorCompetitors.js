@@ -471,34 +471,52 @@ async function monitorCompetitor(competitor, database, scanId) {
   }
 
   let removedSeoCount = 0
+  const missingUrls = [...existingUrlSet].filter(url => !result.discoveredUrls.has(url))
+  const previousCount = existingUrlSet.size
+  const currentCount = result.discoveredUrls.size
+  const suspiciousDrop = previousCount >= 100 &&
+    currentCount < previousCount * 0.8
 
-  if (isSamplingMigration) {
-    console.log(
-      `${competitor.name}: sampling configuration applied. Existing URLs outside the sample will not be reported as deleted.`
-    )
-  } else if (canConfirmDeletions(result.errors)) {
-    for (const url of existingUrlSet) {
-      if (
-        !result.discoveredUrls.has(url) &&
-        !isSamplingMigration
-      ) {
-        database.history.unshift({
-          url,
-          competitor: competitor.name,
-          competitorId: competitor.id,
-          category: 'seoPages',
-          detectedAt: now,
-          scanId,
-          status: 'removed'
-        })
+  // Sitemap disappearance is not proof that a page was deleted.
+  // Require two complete scans with consistent coverage before confirming removal.
+  const canCheckRemovals = !isSamplingMigration &&
+    canConfirmDeletions(result.errors) && !suspiciousDrop
 
-        removedSeoCount++
+  if (suspiciousDrop) {
+    result.errors.push({
+      sitemap: 'Coverage anomaly',
+      message: `SEO URL coverage dropped from ${previousCount} to ${currentCount}; ${missingUrls.length} potential removals held for review.`
+    })
+    console.warn(`${competitor.name}: unexpected sitemap coverage drop. Deletions suppressed.`)
+  }
+
+  for (const url of missingUrls) {
+    const previous = previousUrls[url]
+    const consecutiveMissing = canCheckRemovals
+      ? (previous.missingScans || 0) + 1
+      : (previous.missingScans || 0)
+
+    if (canCheckRemovals && consecutiveMissing >= 2) {
+      database.history.unshift({
+        url,
+        competitor: competitor.name,
+        competitorId: competitor.id,
+        category: 'seoPages',
+        detectedAt: now,
+        scanId,
+        status: 'removed'
+      })
+      removedSeoCount++
+    } else {
+      urls[url] = {
+        ...previous,
+        missingScans: consecutiveMissing
       }
     }
-  } else {
-    console.log(
-      `Deletion detection skipped for ${competitor.name} because sitemap errors occurred.`
-    )
+  }
+
+  if (!canCheckRemovals && !suspiciousDrop) {
+    console.log(`${competitor.name}: deletion confirmation deferred due to sitemap errors or sampling migration.`)
   }
 
   const competitorData = {
