@@ -488,6 +488,7 @@ async function monitorCompetitor(competitor, database, scanId) {
           competitorId: competitor.id,
           category: 'seoPages',
           detectedAt: now,
+          scanId,
           status: 'removed'
         })
 
