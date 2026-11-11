@@ -29,9 +29,25 @@ function buildReport(data) {
 }
 async function main() {
   if (!process.env.AGENTMAIL_API_KEY) throw Error('Missing AGENTMAIL_API_KEY')
-  const data = JSON.parse(fs.readFileSync(dataPath,'utf8'))
+  const testMode = process.env.REPORT_TEST_MODE === 'true'
+  let data = JSON.parse(fs.readFileSync(dataPath,'utf8'))
+  if (testMode && (!data.scanId || !Object.values(data.competitors || {}).some(c => c.scanId === data.scanId))) {
+    const scanId = new Date().toISOString()
+    data = {
+      scanId, lastChecked: scanId,
+      competitors: {
+        'test-competitor': {name:'TEST COMPETITOR — SAMPLE DATA', scanId, monitoredUrls:2, sitemapErrors:[]}
+      },
+      history: [
+        {scanId, competitorId:'test-competitor', category:'seoPages', status:'new', url:'https://example.com/sample-added-page'},
+        {scanId, competitorId:'test-competitor', category:'seoPages', status:'removed', url:'https://example.com/sample-removed-page'}
+      ]
+    }
+    console.log('No completed scan on branch; using clearly labeled sample data for email delivery test.')
+  }
   const report = buildReport(data)
-  const to = process.env.REPORT_TEST_MODE === 'true' ? ['pandelisan28@outlook.com'] : recipients
+  if (testMode) report.subject = '[TEST — NOT LIVE DATA] ' + report.subject
+  const to = testMode ? ['pandelisan28@outlook.com'] : recipients
   const response = await fetch('https://api.agentmail.to/v0/inboxes/' + encodeURIComponent(inbox) + '/messages/send',{method:'POST',headers:{Authorization:'Bearer ' + process.env.AGENTMAIL_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({...report,to})})
   if (!response.ok) throw Error('AgentMail HTTP ' + response.status + ': ' + (await response.text()).slice(0,500))
   console.log('AgentMail accepted report for ' + to.length + ' recipient(s)')
