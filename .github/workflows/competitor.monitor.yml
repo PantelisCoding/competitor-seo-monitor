@@ -61,7 +61,7 @@ jobs:
 
       - name: Install Playwright Chromium
         if: steps.athens.outputs.run == 'true' && inputs.test_email_only != true
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Run competitor scanner
         if: steps.athens.outputs.run == 'true' && inputs.test_email_only != true
