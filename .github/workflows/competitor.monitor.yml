@@ -60,7 +60,7 @@ jobs:
         run: node scripts/monitorCompetitors.js
 
       - name: Commit updated monitoring data
-        if: steps.athens.outputs.run == 'true' && inputs.test_email_only != true
+        if: steps.athens.outputs.run == 'true' && github.event_name == 'schedule'
         id: commit_data
         shell: bash
         run: |
