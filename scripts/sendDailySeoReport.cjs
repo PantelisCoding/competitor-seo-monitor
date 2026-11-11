@@ -10,6 +10,11 @@ function buildReport(data) {
   const competitors = Object.entries(data.competitors).filter(([,c]) => c && c.scanId === data.scanId).sort((a,b) => String(a[1].name).localeCompare(String(b[1].name)))
   if (!competitors.length) throw Error('No competitors checked in latest scan')
   const events = (data.history || []).filter(e => e.scanId === data.scanId && e.category === 'seoPages')
+  const countChanges = ([id,c]) => {
+    const own = events.filter(e => e.competitorId === id || (!e.competitorId && e.competitor === c.name))
+    return new Set(own.filter(e => e.status === 'new' || e.status === 'removed').map(e => e.status + ':' + e.url)).size
+  }
+  competitors.sort((a,b) => countChanges(a) - countChanges(b) || String(a[1].name).localeCompare(String(b[1].name)))
   let newTotal = 0, removedTotal = 0, errorsTotal = 0
   let changedCompetitors = 0
   const textLines = ['LoopCV Daily Competitor SEO Report','Scan: ' + (data.lastChecked || data.scanId),'']
