@@ -414,7 +414,7 @@ function canConfirmDeletions(errors) {
   return errors.length === 0
 }
 
-async function monitorCompetitor(competitor, database) {
+async function monitorCompetitor(competitor, database, scanId) {
   console.log(`Checking ${competitor.name}...`)
 
   const result = await collectUrls(competitor)
@@ -453,6 +453,7 @@ async function monitorCompetitor(competitor, database) {
           competitorId: competitor.id,
           category: 'seoPages',
           detectedAt: now,
+          scanId,
           status: 'new'
         })
 
@@ -503,6 +504,7 @@ async function monitorCompetitor(competitor, database) {
     name: competitor.name,
     domain: competitor.domain,
     lastChecked: now,
+    scanId,
     totalUrls: result.discoveredUrls.size,
     sitemapCount: result.sitemapCount,
     seoPages: result.discoveredUrls.size,
@@ -568,6 +570,7 @@ function saveDatabase(database) {
 
 async function main() {
   const database = loadDatabase()
+  const scanId = new Date().toISOString()
 
   // Newly approved competitors appear in the dashboard even if their first scan fails.
   for (const competitor of ADDITIONAL_COMPETITORS) {
@@ -597,15 +600,22 @@ async function main() {
     }
 
     try {
-      await monitorCompetitor(competitor, database)
+      await monitorCompetitor(competitor, database, scanId)
     } catch (error) {
       console.error(`${competitor.name}: ${error.message}`)
-      if (ADDITIONAL_COMPETITORS.some(item => item.id === competitor.id)) {
-        database.competitors[competitor.id].sitemapErrors = [error.message]
+      const previous = database.competitors[competitor.id] || {}
+      database.competitors[competitor.id] = {
+        ...previous,
+        name: competitor.name,
+        domain: competitor.domain,
+        scanId,
+        newSeoPages: 0,
+        sitemapErrors: [error.message]
       }
     }
   }
 
+  database.scanId = scanId
   database.lastChecked = new Date().toISOString()
 
   saveDatabase(database)
