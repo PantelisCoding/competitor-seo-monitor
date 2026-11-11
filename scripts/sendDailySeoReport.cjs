@@ -11,6 +11,7 @@ function buildReport(data) {
   if (!competitors.length) throw Error('No competitors checked in latest scan')
   const events = (data.history || []).filter(e => e.scanId === data.scanId && e.category === 'seoPages')
   let newTotal = 0, removedTotal = 0, errorsTotal = 0
+  let changedCompetitors = 0
   const textLines = ['LoopCV Daily Competitor SEO Report','Scan: ' + (data.lastChecked || data.scanId),'']
   const htmlSections = []
   for (const [id,c] of competitors) {
@@ -19,12 +20,18 @@ function buildReport(data) {
     const removed = [...new Set(changes.filter(e => e.status === 'removed').map(e => e.url))]
     const errors = (c.sitemapErrors || []).map(e => typeof e === 'string' ? e : e.message || JSON.stringify(e))
     newTotal += added.length; removedTotal += removed.length; errorsTotal += errors.length
+    if (!added.length && !removed.length && !errors.length) continue
+    changedCompetitors++
     textLines.push(c.name + ' — ' + (c.monitoredUrls ?? c.seoPages ?? 0) + ' monitored pages', 'Added (' + added.length + '):', ...(added.length ? added : ['None']), 'Removed (' + removed.length + '):', ...(removed.length ? removed : ['None']), 'Sitemap errors (' + errors.length + '):', ...(errors.length ? errors : ['None']), '')
     const links = urls => urls.length ? '<ul>' + urls.map(u => '<li><a href="' + htmlEscape(u) + '">' + htmlEscape(u) + '</a></li>').join('') + '</ul>' : '<p>None</p>'
     htmlSections.push('<section><h2>' + htmlEscape(c.name) + '</h2><p>Monitored SEO pages: ' + (c.monitoredUrls ?? c.seoPages ?? 0) + '</p><h3>Added (' + added.length + ')</h3>' + links(added) + '<h3>Removed (' + removed.length + ')</h3>' + links(removed) + '<h3>Sitemap errors (' + errors.length + ')</h3>' + (errors.length ? '<ul>' + errors.map(e => '<li>' + htmlEscape(e) + '</li>').join('') + '</ul>' : '<p>None</p>') + '</section>')
   }
   const date = new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Athens',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(data.lastChecked || data.scanId))
-  const summary = competitors.length + ' competitors | ' + newTotal + ' added | ' + removedTotal + ' removed | ' + errorsTotal + ' sitemap errors'
+  if (!changedCompetitors) {
+    textLines.push('No SEO changes or sitemap errors detected in the latest scan.')
+    htmlSections.push('<p>No SEO changes or sitemap errors detected in the latest scan.</p>')
+  }
+  const summary = changedCompetitors + ' competitors with changes/errors (of ' + competitors.length + ' scanned) | ' + newTotal + ' added | ' + removedTotal + ' removed | ' + errorsTotal + ' sitemap errors'
   return {subject:'LoopCV | Daily Competitor SEO Report — ' + date, text:summary + '\n\n' + textLines.join('\n') + '\nLatest scan only. Job listings excluded.', html:'<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:800px;margin:auto"><h1>Daily Competitor SEO Report</h1><p>' + htmlEscape(data.lastChecked || data.scanId) + '</p><p><strong>' + summary + '</strong></p>' + htmlSections.join('<hr>') + '<hr><p>Latest scan only. Job listings excluded.</p></body></html>'}
 }
 async function main() {
