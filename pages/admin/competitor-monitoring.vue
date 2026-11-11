@@ -378,6 +378,7 @@ export default {
       error: '',
       data: {
         lastChecked: null,
+        scanId: null,
         competitors: {},
         history: []
       },
@@ -577,6 +578,7 @@ export default {
 
         this.data = {
           lastChecked: result.lastChecked || null,
+          scanId: result.scanId || null,
           competitors: result.competitors || {},
           history: Array.isArray(result.history) ? result.history : []
         }
@@ -677,6 +679,8 @@ export default {
     getNewUrls(competitorId) {
       return (this.data.history || [])
         .filter(item =>
+          Boolean(this.data.scanId) &&
+          item.scanId === this.data.scanId &&
           item.competitorId === competitorId &&
           item.category === 'seoPages' &&
           item.status === 'new'
@@ -793,7 +797,7 @@ export default {
       const tab = this.getTab(competitorId)
 
       if (tab === 'new') {
-        return 'No new SEO pages have been recorded in the monitoring history.'
+        return 'No new SEO pages were discovered in the latest scan. Run the updated scanner to refresh this view.'
       }
 
       if (tab === 'removed') {
@@ -815,16 +819,13 @@ export default {
       return competitor.monitoredUrls ?? this.getUrls(competitorId).length
     },
 
-    getTotalNewDiscoveries(competitorId) {
-      return (this.data.history || []).filter(item =>
-        item.competitorId === competitorId &&
-        item.category === 'seoPages' &&
-        item.status === 'new'
-      ).length
-    },
-
     getCompetitorNew(competitorId) {
-      return this.getTotalNewDiscoveries(competitorId)
+      const record = this.data.competitors[competitorId]
+      if (!record) return 0
+      if (this.data.scanId && record.scanId !== this.data.scanId) return 0
+      // The scanner resets this field each run; do not count historical events.
+      const count = Number(record.newSeoPages || 0)
+      return Number.isFinite(count) && count > 0 ? Math.trunc(count) : 0
     },
 
     getSitemapsChecked(competitorId) {
