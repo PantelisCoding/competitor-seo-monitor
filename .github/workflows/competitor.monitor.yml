@@ -15,6 +15,10 @@ on:
         description: "Send real scan report only to my Outlook (no team emails)"
         type: boolean
         default: true
+      report_only_avgenakis:
+        description: "Send real scan report only to Avgenakis"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -101,6 +105,7 @@ jobs:
           AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
           REPORT_TEST_MODE: ${{ inputs.test_email_only == true && 'true' || 'false' }}
           REPORT_ONLY_ME: ${{ github.event_name == 'workflow_dispatch' && inputs.report_only_me == true && 'true' || 'false' }}
+          REPORT_ONLY_AVGENAKIS: ${{ github.event_name == 'workflow_dispatch' && inputs.report_only_avgenakis == true && 'true' || 'false' }}
         run: node scripts/sendDailySeoReport.cjs
 
       # Netlify (if selected later) rebuilds automatically on repository pushes.
