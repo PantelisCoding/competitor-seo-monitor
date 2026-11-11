@@ -11,6 +11,10 @@ on:
         description: "Send test email to Outlook only; skip scanner and commit"
         type: boolean
         default: true
+      report_only_me:
+        description: "Send real scan report only to my Outlook (no team emails)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -96,6 +100,7 @@ jobs:
         env:
           AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
           REPORT_TEST_MODE: ${{ inputs.test_email_only == true && 'true' || 'false' }}
+          REPORT_ONLY_ME: ${{ github.event_name == 'workflow_dispatch' && inputs.report_only_me == true && 'true' || 'false' }}
         run: node scripts/sendDailySeoReport.cjs
 
       # Netlify (if selected later) rebuilds automatically on repository pushes.
