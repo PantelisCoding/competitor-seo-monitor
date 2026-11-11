@@ -11,6 +11,8 @@ npm run dev
 
 Use **+ Add Competitor** to add a domain and optional HTTPS sitemap; use **Delete** to disable monitoring without erasing the historical SEO report. On localhost, the Vite-only API saves configuration to `static/data/extra-competitors.json` and `static/data/disabled-competitors.json`. The scanner reads both files on startup.
 
+The **New SEO pages** overview and competitor counters show only discoveries from the latest scan (using per-scan IDs and `newSeoPages`, not the entire history). The **New discoveries** tab also filters to the latest scan; previous historical events remain stored for reporting. Legacy JSON data without per-scan IDs will show the last stored per-competitor counter until the next updated scan, after which the new tab can display accurate per-run discoveries.
+
 To scan all active competitors locally: `npm run scan` (may take time and uses Playwright). The GitHub Actions workflow `.github/workflows/competitor.monitor.yml` performs one automatic scan per day at 03:00 UTC and also supports explicitly initiated manual runs.
 
 ## Production preparation
